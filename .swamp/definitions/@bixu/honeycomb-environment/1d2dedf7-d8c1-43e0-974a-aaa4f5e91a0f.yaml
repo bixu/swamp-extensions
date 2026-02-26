@@ -1,7 +1,7 @@
 type: '@bixu/honeycomb-environment'
 typeVersion: 2026.02.26.1
 id: 1d2dedf7-d8c1-43e0-974a-aaa4f5e91a0f
-name: my-honeycomb
+name: honeycomb
 version: 1
 tags: {}
 globalArguments:
