@@ -1,0 +1,9 @@
+.swamp/data/
+.swamp/secrets/
+.swamp/vault/
+.swamp/bundles/
+.swamp/outputs/
+.swamp/telemetry/
+.swamp/definitions-evaluated/
+.swamp/workflows-evaluated/
+.swamp/workflow-runs/

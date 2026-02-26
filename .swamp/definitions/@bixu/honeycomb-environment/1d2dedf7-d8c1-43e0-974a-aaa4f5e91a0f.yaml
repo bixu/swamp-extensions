@@ -1,0 +1,12 @@
+type: '@bixu/honeycomb-environment'
+typeVersion: 2026.02.26.1
+id: 1d2dedf7-d8c1-43e0-974a-aaa4f5e91a0f
+name: my-honeycomb
+version: 1
+tags: {}
+globalArguments:
+  teamSlug: ${{ env.HONEYCOMB_TEAM_SLUG }}
+  apiKeyId: ${{ env.HONEYCOMB_API_KEY_ID }}
+  apiKeySecret: ${{ env.HONEYCOMB_API_KEY_SECRET }}
+  region: us
+methods: {}
