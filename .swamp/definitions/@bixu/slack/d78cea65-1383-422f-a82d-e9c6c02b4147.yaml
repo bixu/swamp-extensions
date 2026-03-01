@@ -1,0 +1,9 @@
+type: '@bixu/slack'
+typeVersion: 2026.03.01.1
+id: d78cea65-1383-422f-a82d-e9c6c02b4147
+name: slack
+version: 1
+tags: {}
+globalArguments:
+  slackOauthToken: ${{ vault.get('slack', 'swamp_bot_oauth_token') }}
+methods: {}
