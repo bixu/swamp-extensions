@@ -1,0 +1,11 @@
+type: '@john/tailscale-acl'
+typeVersion: 2026.02.28.1
+id: 703338d4-4edb-467c-a11e-00aba9c914cc
+name: ts-acl
+version: 1
+tags: {}
+globalArguments:
+  tailnet: "-"
+  apiKey: ${{ vault.get('slack', 'tailscale_api_key') }}
+  baseUrl: https://api.tailscale.com
+methods: {}
