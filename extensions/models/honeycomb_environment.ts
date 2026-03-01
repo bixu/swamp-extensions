@@ -35,7 +35,7 @@ export const model = {
     sync: {
       description: "List all environments and store each as a resource",
       arguments: z.object({}),
-      execute: async (_args: any, context: any) => {
+      execute: async (_args, context) => {
         const teamSlug = String(context.globalArgs.teamSlug).trim();
         const apiKeyId = String(context.globalArgs.apiKeyId).trim();
         const apiKeySecret = String(context.globalArgs.apiKeySecret).trim();
@@ -96,7 +96,7 @@ export const model = {
       arguments: z.object({
         environmentId: z.string().describe("The environment ID to fetch"),
       }),
-      execute: async (args: any, context: any) => {
+      execute: async (args, context) => {
         const { teamSlug, apiKeyId, apiKeySecret, region } =
           context.globalArgs;
         const baseUrl =
