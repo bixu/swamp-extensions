@@ -3,10 +3,10 @@ import { WebClient } from "npm:@slack/web-api@7.14.1";
 import Parser from "npm:rss-parser@3";
 import { TailscaleGlobalArgsSchema, tsApi } from "./tailscale/_helpers.ts";
 import {
-  type Device,
   buildCsv,
   buildOutdatedClientsMarkdown,
   compareVersions,
+  type Device,
   isBelow,
 } from "./tailnet_healthcheck_helpers.ts";
 
@@ -245,7 +245,8 @@ export const model = {
                 thread_ts: threadTs,
                 filename,
                 content: csv,
-                title: `Unpatched Tailscale Clients (${outdatedDevices.length} devices)`,
+                title:
+                  `Unpatched Tailscale Clients (${outdatedDevices.length} devices)`,
               });
 
               context.logger.info("Uploaded CSV to Slack #{channel}", {

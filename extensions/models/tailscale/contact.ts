@@ -65,7 +65,9 @@ export const model = {
         await tsApi(
           g,
           "PATCH",
-          `/api/v2/tailnet/${tailnet}/contacts/${encodeURIComponent(args.contactType)}`,
+          `/api/v2/tailnet/${tailnet}/contacts/${
+            encodeURIComponent(args.contactType)
+          }`,
           { email: args.email },
         );
         context.logger.info(
