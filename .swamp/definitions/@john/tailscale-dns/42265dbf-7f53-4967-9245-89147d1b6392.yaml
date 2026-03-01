@@ -1,0 +1,11 @@
+type: '@john/tailscale-dns'
+typeVersion: 2026.02.28.1
+id: 42265dbf-7f53-4967-9245-89147d1b6392
+name: ts-dns
+version: 1
+tags: {}
+globalArguments:
+  tailnet: "-"
+  apiKey: ${{ vault.get('slack', 'tailscale_api_key') }}
+  baseUrl: https://api.tailscale.com
+methods: {}

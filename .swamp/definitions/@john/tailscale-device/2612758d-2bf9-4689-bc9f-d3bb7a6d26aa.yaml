@@ -1,0 +1,11 @@
+type: '@john/tailscale-device'
+typeVersion: 2026.02.28.1
+id: 2612758d-2bf9-4689-bc9f-d3bb7a6d26aa
+name: ts-device
+version: 1
+tags: {}
+globalArguments:
+  tailnet: "-"
+  apiKey: ${{ vault.get('slack', 'tailscale_api_key') }}
+  baseUrl: https://api.tailscale.com
+methods: {}
