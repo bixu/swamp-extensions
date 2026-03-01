@@ -1,8 +1,8 @@
 import { z } from "npm:zod@4";
 import {
+  sanitizeInstanceName,
   TailscaleGlobalArgsSchema,
   tsApi,
-  sanitizeInstanceName,
 } from "./_helpers.ts";
 
 const PostureIntegrationSchema = z
@@ -82,7 +82,9 @@ export const model = {
         const resp = await tsApi(
           g,
           "GET",
-          `/api/v2/tailnet/${tailnet}/posture/integrations/${encodeURIComponent(args.integrationId)}`,
+          `/api/v2/tailnet/${tailnet}/posture/integrations/${
+            encodeURIComponent(args.integrationId)
+          }`,
         );
         const integration = normalizeIntegration(resp);
         const handle = await context.writeResource(
@@ -147,7 +149,9 @@ export const model = {
         const resp = await tsApi(
           g,
           "PATCH",
-          `/api/v2/tailnet/${tailnet}/posture/integrations/${encodeURIComponent(args.integrationId)}`,
+          `/api/v2/tailnet/${tailnet}/posture/integrations/${
+            encodeURIComponent(args.integrationId)
+          }`,
           patch,
         );
         const integration = normalizeIntegration(resp);
@@ -176,7 +180,9 @@ export const model = {
         await tsApi(
           g,
           "DELETE",
-          `/api/v2/tailnet/${tailnet}/posture/integrations/${encodeURIComponent(args.integrationId)}`,
+          `/api/v2/tailnet/${tailnet}/posture/integrations/${
+            encodeURIComponent(args.integrationId)
+          }`,
         );
         context.logger.info("Deleted posture integration {id}", {
           id: args.integrationId,

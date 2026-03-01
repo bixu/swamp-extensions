@@ -81,7 +81,12 @@ Deno.test("buildCsv returns empty string for no devices", () => {
 
 Deno.test("buildCsv puts priority columns first", () => {
   const devices = [
-    { id: "123", hostname: "myhost", user: "alice@example.com", tags: ["tag:server"] },
+    {
+      id: "123",
+      hostname: "myhost",
+      user: "alice@example.com",
+      tags: ["tag:server"],
+    },
   ];
   const csv = buildCsv(devices);
   const header = csv.split("\n")[0];
