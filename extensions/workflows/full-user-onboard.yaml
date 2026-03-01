@@ -1,0 +1,107 @@
+id: 5f948494-3568-4aa1-93dc-51665d028007
+name: full-user-onboard
+description: Complete user onboarding — snapshot ACL and settings for audit trail, approve the user, set their role, create a pre-authorized auth key, then verify
+version: 1
+inputs:
+  properties:
+    userModel:
+      type: string
+      description: Name of the @john/tailscale-user model instance
+    aclModel:
+      type: string
+      description: Name of the @john/tailscale-acl model instance
+    keyModel:
+      type: string
+      description: Name of the @john/tailscale-auth-key model instance
+    webhookModel:
+      type: string
+      description: Name of the @john/tailscale-webhook model instance
+    settingsModel:
+      type: string
+      description: Name of the @john/tailscale-settings model instance
+    userId:
+      type: string
+      description: ID of the user to onboard
+    role:
+      type: string
+      description: "Role to assign: owner, admin, it-admin, network-admin, member, or auditor"
+  required:
+    - userModel
+    - aclModel
+    - keyModel
+    - webhookModel
+    - settingsModel
+    - userId
+    - role
+jobs:
+  - name: baseline
+    description: Snapshot current state before making changes (audit trail)
+    steps:
+      - name: snapshot-acl
+        description: Snapshot the current ACL policy before onboarding changes
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.aclModel }}
+          methodName: get
+      - name: get-settings
+        description: Capture current tailnet settings
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.settingsModel }}
+          methodName: get
+      - name: list-webhooks
+        description: List existing webhooks for reference
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.webhookModel }}
+          methodName: list
+  - name: provision
+    description: Approve the user, set their role, and create an auth key
+    dependsOn:
+      - job: baseline
+        condition:
+          type: succeeded
+    steps:
+      - name: approve-user
+        description: Approve the pending user account
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.userModel }}
+          methodName: approve
+          inputs:
+            userId: ${{ inputs.userId }}
+      - name: set-role
+        description: Set the user's role
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.userModel }}
+          methodName: setRole
+          inputs:
+            userId: ${{ inputs.userId }}
+            role: ${{ inputs.role }}
+      - name: create-auth-key
+        description: Create a pre-authorized ephemeral auth key for the user's first device
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.keyModel }}
+          methodName: create
+          inputs:
+            description: "Onboarding key for new user"
+            expirySeconds: 86400
+            reusable: false
+            ephemeral: false
+            preauthorized: true
+            tags: []
+  - name: verify
+    description: Verify the onboarding completed successfully
+    dependsOn:
+      - job: provision
+        condition:
+          type: succeeded
+    steps:
+      - name: list-users
+        description: Re-list users to confirm the new user is active
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.userModel }}
+          methodName: list

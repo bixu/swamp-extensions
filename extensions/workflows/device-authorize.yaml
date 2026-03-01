@@ -1,0 +1,28 @@
+id: 939acc93-d489-4428-bc1a-4d14678ae12b
+name: device-authorize
+description: Authorize a pending device to join the tailnet
+version: 1
+inputs:
+  properties:
+    deviceModel:
+      type: string
+      description: Name of the @john/tailscale-device model instance
+    deviceId:
+      type: string
+      description: ID of the device to authorize
+  required:
+    - deviceModel
+    - deviceId
+jobs:
+  - name: authorize
+    description: Authorize the specified device
+    steps:
+      - name: authorize-device
+        description: Set the device as authorized
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: authorize
+          inputs:
+            deviceId: ${{ inputs.deviceId }}
+            authorized: true

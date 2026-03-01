@@ -1,0 +1,37 @@
+id: bf49eb37-9974-4c99-b54c-55c7c9115acb
+name: user-offboard
+description: Offboard a user — suspend them and list their devices for cleanup
+version: 1
+inputs:
+  properties:
+    userModel:
+      type: string
+      description: Name of the @john/tailscale-user model instance
+    deviceModel:
+      type: string
+      description: Name of the @john/tailscale-device model instance
+    userId:
+      type: string
+      description: ID of the user to offboard
+  required:
+    - userModel
+    - deviceModel
+    - userId
+jobs:
+  - name: offboard
+    description: Suspend the user and discover their devices
+    steps:
+      - name: suspend-user
+        description: Suspend the user account
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.userModel }}
+          methodName: suspend
+          inputs:
+            userId: ${{ inputs.userId }}
+      - name: list-devices
+        description: List all devices to identify those belonging to the suspended user
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: list

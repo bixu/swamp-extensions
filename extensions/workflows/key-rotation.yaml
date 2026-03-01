@@ -1,0 +1,31 @@
+id: 61c96c57-4dc4-4612-ab5f-c3a5bdf66a34
+name: key-rotation
+description: Rotate auth keys — list existing keys and create a new replacement key
+version: 1
+inputs:
+  properties:
+    keyModel:
+      type: string
+      description: Name of the @john/tailscale-auth-key model instance
+  required:
+    - keyModel
+jobs:
+  - name: rotate
+    description: List current keys and create a new key
+    steps:
+      - name: list-keys
+        description: List all existing auth keys to review before rotation
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.keyModel }}
+          methodName: list
+      - name: create-new-key
+        description: Create a new pre-authorized auth key
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.keyModel }}
+          methodName: create
+          inputs:
+            description: "Rotated key"
+            preauthorized: true
+            expirySeconds: 86400

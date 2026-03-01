@@ -1,0 +1,72 @@
+id: db142c7e-c0ab-47d9-b1af-ae66b8157198
+name: enable-monitoring
+description: Set up webhook monitoring and enable flow logging — configure log streaming, then create and test a webhook for security events
+version: 1
+inputs:
+  properties:
+    settingsModel:
+      type: string
+      description: Name of the @john/tailscale-settings model instance
+    logConfigModel:
+      type: string
+      description: Name of the @john/tailscale-log-config model instance
+    webhookModel:
+      type: string
+      description: Name of the @john/tailscale-webhook model instance
+    logDestinationUrl:
+      type: string
+      description: URL for log streaming destination
+    webhookEndpointUrl:
+      type: string
+      description: URL to receive webhook events
+    webhookSubscriptions:
+      type: array
+      items:
+        type: string
+      description: "Event types to subscribe to, e.g. ['nodeCreated', 'userCreated']"
+  required:
+    - settingsModel
+    - logConfigModel
+    - webhookModel
+    - logDestinationUrl
+    - webhookEndpointUrl
+    - webhookSubscriptions
+jobs:
+  - name: configure
+    description: Enable network flow logging and set up log streaming
+    steps:
+      - name: enable-flow-logging
+        description: Enable network flow logging in tailnet settings
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.settingsModel }}
+          methodName: update
+          inputs:
+            networkFlowLoggingOn: true
+      - name: set-log-streaming
+        description: Configure network log streaming destination
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.logConfigModel }}
+          methodName: set
+          inputs:
+            logType: network
+            destinationUrl: ${{ inputs.logDestinationUrl }}
+            streamingEnabled: true
+  - name: setup-webhooks
+    description: Create a webhook for security events and send a test event
+    dependsOn:
+      - job: configure
+        condition:
+          type: succeeded
+    steps:
+      - name: create-webhook
+        description: Create webhook endpoint with security event subscriptions
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.webhookModel }}
+          methodName: create
+          inputs:
+            endpointUrl: ${{ inputs.webhookEndpointUrl }}
+            providerType: ""
+            subscriptions: ${{ inputs.webhookSubscriptions }}
