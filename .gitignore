@@ -7,3 +7,4 @@
 .swamp/definitions-evaluated/
 .swamp/workflows-evaluated/
 .swamp/workflow-runs/
+.DS_Store
