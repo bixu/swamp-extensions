@@ -26,8 +26,9 @@ export function formatTable(tableBlock: string): string {
 
   // Calculate column widths
   const colCount = rows[0].length;
-  const widths = Array.from({ length: colCount }, (_, c) =>
-    Math.max(...rows.map((r) => (r[c] || "").length))
+  const widths = Array.from(
+    { length: colCount },
+    (_, c) => Math.max(...rows.map((r) => (r[c] || "").length)),
   );
 
   // Format as aligned plain text
@@ -76,7 +77,10 @@ export function markdownToSlackMrkdwn(md: string): string {
   text = text.replace(/\[(.+?)\]\((.+?)\)/g, "<$2|$1>");
 
   // Restore inline code
-  text = text.replace(/__INLINE_CODE_(\d+)__/g, (_, i) => inlineCode[Number(i)]);
+  text = text.replace(
+    /__INLINE_CODE_(\d+)__/g,
+    (_, i) => inlineCode[Number(i)],
+  );
 
   // Restore code blocks
   text = text.replace(/__CODE_BLOCK_(\d+)__/g, (_, i) => codeBlocks[Number(i)]);
@@ -84,7 +88,10 @@ export function markdownToSlackMrkdwn(md: string): string {
   return text;
 }
 
-export function splitIntoBlocks(text: string, limit = 3000): Record<string, unknown>[] {
+export function splitIntoBlocks(
+  text: string,
+  limit = 3000,
+): Record<string, unknown>[] {
   if (text.length <= limit) {
     return [{ type: "section", text: { type: "mrkdwn", text } }];
   }
@@ -150,13 +157,19 @@ export function splitIntoBlocks(text: string, limit = 3000): Record<string, unkn
 
   for (const section of expanded) {
     if (chunk.length + section.length > limit && chunk.trim()) {
-      blocks.push({ type: "section", text: { type: "mrkdwn", text: chunk.trimEnd() } });
+      blocks.push({
+        type: "section",
+        text: { type: "mrkdwn", text: chunk.trimEnd() },
+      });
       chunk = "";
     }
     chunk += section;
   }
   if (chunk.trim()) {
-    blocks.push({ type: "section", text: { type: "mrkdwn", text: chunk.trimEnd() } });
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: chunk.trimEnd() },
+    });
   }
 
   return blocks;
@@ -178,9 +191,13 @@ export const model = {
     send: {
       description: "Send a Markdown message to a Slack channel",
       arguments: z.object({
-        channel: z.string().describe("Channel name (with or without #) or channel ID"),
+        channel: z.string().describe(
+          "Channel name (with or without #) or channel ID",
+        ),
         text: z.string().describe("Message content in standard Markdown"),
-        title: z.string().optional().describe("Optional title prepended as a bold header"),
+        title: z.string().optional().describe(
+          "Optional title prepended as a bold header",
+        ),
       }),
       execute: async (args, context) => {
         const botToken = String(context.globalArgs.slackOauthToken).trim();

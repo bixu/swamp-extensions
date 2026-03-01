@@ -1,0 +1,14 @@
+{
+  "fmt": {
+    "include": ["**/*.ts"]
+  },
+  "lint": {
+    "include": ["**/*.ts"],
+    "rules": {
+      "exclude": ["no-import-prefix"]
+    }
+  },
+  "test": {
+    "include": ["**/*_test.ts"]
+  }
+}

@@ -35,7 +35,9 @@ export const model = {
         const resp = await tsApi(
           g,
           "GET",
-          `/api/v2/tailnet/${tailnet}/logging/${encodeURIComponent(args.logType)}/stream`,
+          `/api/v2/tailnet/${tailnet}/logging/${
+            encodeURIComponent(args.logType)
+          }/stream`,
         );
         const handle = await context.writeResource(
           "logConfig",
@@ -70,7 +72,9 @@ export const model = {
         await tsApi(
           g,
           "PUT",
-          `/api/v2/tailnet/${tailnet}/logging/${encodeURIComponent(args.logType)}/stream`,
+          `/api/v2/tailnet/${tailnet}/logging/${
+            encodeURIComponent(args.logType)
+          }/stream`,
           body,
         );
         context.logger.info("Set log config for {logType}", {
@@ -79,7 +83,9 @@ export const model = {
         const resp = await tsApi(
           g,
           "GET",
-          `/api/v2/tailnet/${tailnet}/logging/${encodeURIComponent(args.logType)}/stream`,
+          `/api/v2/tailnet/${tailnet}/logging/${
+            encodeURIComponent(args.logType)
+          }/stream`,
         );
         const handle = await context.writeResource(
           "logConfig",
@@ -103,7 +109,9 @@ export const model = {
         await tsApi(
           g,
           "DELETE",
-          `/api/v2/tailnet/${tailnet}/logging/${encodeURIComponent(args.logType)}/stream`,
+          `/api/v2/tailnet/${tailnet}/logging/${
+            encodeURIComponent(args.logType)
+          }/stream`,
         );
         context.logger.info("Deleted log config for {logType}", {
           logType: args.logType,

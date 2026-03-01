@@ -156,7 +156,11 @@ export const model = {
           args.acl,
         );
         context.logger.info("ACL policy validated successfully");
-        const handle = await context.writeResource("acl", "validated", args.acl);
+        const handle = await context.writeResource(
+          "acl",
+          "validated",
+          args.acl,
+        );
         return { dataHandles: [handle] };
       },
     },
