@@ -40,10 +40,9 @@ export const model = {
         const apiKeyId = String(context.globalArgs.apiKeyId).trim();
         const apiKeySecret = String(context.globalArgs.apiKeySecret).trim();
         const region = context.globalArgs.region;
-        const baseUrl =
-          region === "eu"
-            ? "https://api.eu1.honeycomb.io"
-            : "https://api.honeycomb.io";
+        const baseUrl = region === "eu"
+          ? "https://api.eu1.honeycomb.io"
+          : "https://api.honeycomb.io";
 
         const handles = [];
         let nextUrl: string | null = null;
@@ -97,15 +96,15 @@ export const model = {
         environmentId: z.string().describe("The environment ID to fetch"),
       }),
       execute: async (args, context) => {
-        const { teamSlug, apiKeyId, apiKeySecret, region } =
-          context.globalArgs;
-        const baseUrl =
-          region === "eu"
-            ? "https://api.eu1.honeycomb.io"
-            : "https://api.honeycomb.io";
+        const { teamSlug, apiKeyId, apiKeySecret, region } = context.globalArgs;
+        const baseUrl = region === "eu"
+          ? "https://api.eu1.honeycomb.io"
+          : "https://api.honeycomb.io";
 
         const resp = await fetch(
-          `${baseUrl}/2/teams/${encodeURIComponent(teamSlug)}/environments/${encodeURIComponent(args.environmentId)}`,
+          `${baseUrl}/2/teams/${encodeURIComponent(teamSlug)}/environments/${
+            encodeURIComponent(args.environmentId)
+          }`,
           {
             headers: {
               Authorization: `Bearer ${apiKeyId}:${apiKeySecret}`,
