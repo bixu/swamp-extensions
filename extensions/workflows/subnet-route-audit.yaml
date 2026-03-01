@@ -1,0 +1,39 @@
+id: 80bcbc86-9d2a-42be-910a-6de068c05c54
+name: subnet-route-audit
+description: Audit all device subnet routes — discover devices then collect advertised and enabled routes for each
+version: 1
+inputs:
+  properties:
+    deviceModel:
+      type: string
+      description: Name of the @john/tailscale-device model instance
+  required:
+    - deviceModel
+jobs:
+  - name: discover
+    description: List all devices in the tailnet
+    steps:
+      - name: list-devices
+        description: Fetch all devices to identify which ones to inspect
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: list
+  - name: inspect-routes
+    description: Collect subnet routes for each discovered device
+    dependsOn:
+      - job: discover
+        condition:
+          type: succeeded
+    steps:
+      - name: get-routes-${{ self.device.attributes.id }}
+        description: Get advertised and enabled routes for this device
+        forEach:
+          item: device
+          in: ${{ data.findBySpec(inputs.deviceModel, "device") }}
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: getRoutes
+          inputs:
+            deviceId: ${{ self.device.attributes.id }}

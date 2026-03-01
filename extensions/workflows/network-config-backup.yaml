@@ -1,0 +1,65 @@
+id: b5d21856-81d7-4eae-94db-79064d0c434a
+name: network-config-backup
+description: Full network configuration export — DNS (nameservers, search paths, MagicDNS, split DNS), ACL (JSON + raw HuJSON), and tailnet settings
+version: 1
+inputs:
+  properties:
+    dnsModel:
+      type: string
+      description: Name of the @john/tailscale-dns model instance
+    aclModel:
+      type: string
+      description: Name of the @john/tailscale-acl model instance
+    settingsModel:
+      type: string
+      description: Name of the @john/tailscale-settings model instance
+  required:
+    - dnsModel
+    - aclModel
+    - settingsModel
+jobs:
+  - name: backup
+    description: Collect all network configuration in parallel
+    steps:
+      - name: get-nameservers
+        description: Fetch DNS nameserver configuration
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.dnsModel }}
+          methodName: getNameservers
+      - name: get-search-paths
+        description: Fetch DNS search path configuration
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.dnsModel }}
+          methodName: getSearchPaths
+      - name: get-dns-preferences
+        description: Fetch DNS preferences including MagicDNS status
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.dnsModel }}
+          methodName: getPreferences
+      - name: get-split-dns
+        description: Fetch split DNS configuration
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.dnsModel }}
+          methodName: getSplitDns
+      - name: get-acl-json
+        description: Fetch the current ACL policy as JSON
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.aclModel }}
+          methodName: get
+      - name: get-acl-raw
+        description: Fetch the current ACL policy as raw HuJSON
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.aclModel }}
+          methodName: getRaw
+      - name: get-settings
+        description: Fetch tailnet settings
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.settingsModel }}
+          methodName: get

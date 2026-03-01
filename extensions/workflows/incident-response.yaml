@@ -1,0 +1,61 @@
+id: 2d2c1077-4c2e-4174-8b00-1df8853bd115
+name: incident-response
+description: Emergency device lockdown — deauthorize a suspect device, tag for investigation, collect routes and posture for forensics
+version: 1
+inputs:
+  properties:
+    deviceModel:
+      type: string
+      description: Name of the @john/tailscale-device model instance
+    deviceId:
+      type: string
+      description: ID of the suspect device to lock down
+  required:
+    - deviceModel
+    - deviceId
+jobs:
+  - name: lockdown
+    description: Deauthorize the device and tag it for investigation
+    steps:
+      - name: deauthorize
+        description: Immediately deauthorize the suspect device
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: authorize
+          inputs:
+            deviceId: ${{ inputs.deviceId }}
+            authorized: false
+      - name: tag-investigation
+        description: Apply investigation tag to the locked-down device
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: setTags
+          inputs:
+            deviceId: ${{ inputs.deviceId }}
+            tags:
+              - "tag:investigation"
+  - name: forensics
+    description: Collect routes and posture data for forensic analysis
+    dependsOn:
+      - job: lockdown
+        condition:
+          type: succeeded
+    steps:
+      - name: collect-routes
+        description: Get subnet routes from the locked-down device
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: getRoutes
+          inputs:
+            deviceId: ${{ inputs.deviceId }}
+      - name: collect-posture
+        description: Get posture attributes from the locked-down device
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: getPosture
+          inputs:
+            deviceId: ${{ inputs.deviceId }}

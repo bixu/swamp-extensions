@@ -1,0 +1,41 @@
+id: fac4883d-5945-4593-83a1-e4b3e3d0c6a6
+name: acl-audit
+description: Full ACL audit — collect the current ACL policy, all devices, and all users for cross-referencing
+version: 1
+inputs:
+  properties:
+    aclModel:
+      type: string
+      description: Name of the @john/tailscale-acl model instance
+    deviceModel:
+      type: string
+      description: Name of the @john/tailscale-device model instance
+    userModel:
+      type: string
+      description: Name of the @john/tailscale-user model instance
+  required:
+    - aclModel
+    - deviceModel
+    - userModel
+jobs:
+  - name: collect
+    description: Gather ACL policy, devices, and users for audit analysis
+    steps:
+      - name: get-acl
+        description: Fetch the current ACL policy
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.aclModel }}
+          methodName: get
+      - name: list-devices
+        description: List all devices for cross-referencing with ACL rules
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: list
+      - name: list-users
+        description: List all users for cross-referencing with ACL groups
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.userModel }}
+          methodName: list

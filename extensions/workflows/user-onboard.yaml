@@ -1,0 +1,41 @@
+id: 03ceb53d-0eb8-4aaa-8d16-117d20984a61
+name: user-onboard
+description: Onboard a new user — approve them and create a pre-authorized auth key
+version: 1
+inputs:
+  properties:
+    userModel:
+      type: string
+      description: Name of the @john/tailscale-user model instance
+    keyModel:
+      type: string
+      description: Name of the @john/tailscale-auth-key model instance
+    userId:
+      type: string
+      description: ID of the user to onboard
+  required:
+    - userModel
+    - keyModel
+    - userId
+jobs:
+  - name: onboard
+    description: Approve the user and generate an auth key for their devices
+    steps:
+      - name: approve-user
+        description: Approve the pending user
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.userModel }}
+          methodName: approve
+          inputs:
+            userId: ${{ inputs.userId }}
+      - name: create-key
+        description: Create a pre-authorized auth key for the new user
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.keyModel }}
+          methodName: create
+          inputs:
+            description: "Onboarding key for user"
+            preauthorized: true
+            expirySeconds: 86400

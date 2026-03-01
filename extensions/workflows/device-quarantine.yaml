@@ -1,0 +1,38 @@
+id: e369531b-6cec-4119-a02e-457fe27486df
+name: device-quarantine
+description: Quarantine a device — deauthorize it and apply a quarantine tag
+version: 1
+inputs:
+  properties:
+    deviceModel:
+      type: string
+      description: Name of the @john/tailscale-device model instance
+    deviceId:
+      type: string
+      description: ID of the device to quarantine
+  required:
+    - deviceModel
+    - deviceId
+jobs:
+  - name: quarantine
+    description: Deauthorize the device and tag it as quarantined
+    steps:
+      - name: deauthorize
+        description: Revoke device authorization
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: authorize
+          inputs:
+            deviceId: ${{ inputs.deviceId }}
+            authorized: false
+      - name: tag-quarantined
+        description: Apply tag:quarantined to the device
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: setTags
+          inputs:
+            deviceId: ${{ inputs.deviceId }}
+            tags:
+              - "tag:quarantined"

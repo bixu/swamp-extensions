@@ -1,0 +1,59 @@
+id: 4402a6ef-a48c-46d6-a00c-441ef7f2afc7
+name: stale-device-cleanup
+description: Find all devices in the tailnet and quarantine stale ones — deauthorize and tag as stale
+version: 1
+inputs:
+  properties:
+    deviceModel:
+      type: string
+      description: Name of the @john/tailscale-device model instance
+    staleDeviceIds:
+      type: array
+      items:
+        type: string
+      description: Device IDs to quarantine as stale
+  required:
+    - deviceModel
+    - staleDeviceIds
+jobs:
+  - name: discover
+    description: List all devices in the tailnet for stale device identification
+    steps:
+      - name: list-devices
+        description: Fetch all devices with connectivity and last-seen info
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: list
+  - name: quarantine
+    description: Deauthorize and tag each stale device
+    dependsOn:
+      - job: discover
+        condition:
+          type: succeeded
+    steps:
+      - name: deauthorize-${{ self.device }}
+        description: Deauthorize the stale device
+        forEach:
+          item: device
+          in: ${{ inputs.staleDeviceIds }}
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: authorize
+          inputs:
+            deviceId: ${{ self.device }}
+            authorized: false
+      - name: tag-stale-${{ self.device }}
+        description: Apply tag:stale to the device
+        forEach:
+          item: device
+          in: ${{ inputs.staleDeviceIds }}
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: setTags
+          inputs:
+            deviceId: ${{ self.device }}
+            tags:
+              - "tag:stale"

@@ -1,0 +1,61 @@
+id: 0665d0c1-efce-4ead-84f7-e2b359319580
+name: tailnet-overview
+description: Complete tailnet summary — devices, users, DNS nameservers, ACL policy, and tailnet settings
+version: 1
+inputs:
+  properties:
+    deviceModel:
+      type: string
+      description: Name of the @john/tailscale-device model instance
+    userModel:
+      type: string
+      description: Name of the @john/tailscale-user model instance
+    dnsModel:
+      type: string
+      description: Name of the @john/tailscale-dns model instance
+    aclModel:
+      type: string
+      description: Name of the @john/tailscale-acl model instance
+    settingsModel:
+      type: string
+      description: Name of the @john/tailscale-settings model instance
+  required:
+    - deviceModel
+    - userModel
+    - dnsModel
+    - aclModel
+    - settingsModel
+jobs:
+  - name: overview
+    description: Collect all tailnet resources for a comprehensive overview
+    steps:
+      - name: list-devices
+        description: Fetch all devices in the tailnet
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: list
+      - name: list-users
+        description: Fetch all users in the tailnet
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.userModel }}
+          methodName: list
+      - name: get-nameservers
+        description: Fetch DNS nameserver configuration
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.dnsModel }}
+          methodName: getNameservers
+      - name: get-acl
+        description: Fetch the current ACL policy
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.aclModel }}
+          methodName: get
+      - name: get-settings
+        description: Fetch tailnet settings
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.settingsModel }}
+          methodName: get

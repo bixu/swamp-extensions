@@ -1,0 +1,92 @@
+id: 3a730a3a-5f96-4967-a7fe-0f2c1bb15072
+name: full-user-offboard
+description: Complete user offboarding — suspend the user, snapshot ACL, list all devices and auth keys, then fetch device details for cleanup
+version: 1
+inputs:
+  properties:
+    userModel:
+      type: string
+      description: Name of the @john/tailscale-user model instance
+    deviceModel:
+      type: string
+      description: Name of the @john/tailscale-device model instance
+    aclModel:
+      type: string
+      description: Name of the @john/tailscale-acl model instance
+    keyModel:
+      type: string
+      description: Name of the @john/tailscale-auth-key model instance
+    settingsModel:
+      type: string
+      description: Name of the @john/tailscale-settings model instance
+    userId:
+      type: string
+      description: ID of the user to offboard
+  required:
+    - userModel
+    - deviceModel
+    - aclModel
+    - keyModel
+    - settingsModel
+    - userId
+jobs:
+  - name: lockout
+    description: Suspend the user immediately
+    steps:
+      - name: suspend-user
+        description: Suspend the user account to revoke access
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.userModel }}
+          methodName: suspend
+          inputs:
+            userId: ${{ inputs.userId }}
+  - name: audit-collect
+    description: Collect all data needed for cleanup and compliance
+    dependsOn:
+      - job: lockout
+        condition:
+          type: succeeded
+    steps:
+      - name: snapshot-acl
+        description: Snapshot the ACL policy for audit record
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.aclModel }}
+          methodName: get
+      - name: list-devices
+        description: List all devices to identify the offboarded user's devices
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: list
+      - name: list-keys
+        description: List all auth keys to find keys created by the user
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.keyModel }}
+          methodName: list
+      - name: get-settings
+        description: Capture tailnet settings for compliance record
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.settingsModel }}
+          methodName: get
+  - name: device-detail
+    description: Fetch full details for each device to identify the offboarded user's devices
+    dependsOn:
+      - job: audit-collect
+        condition:
+          type: succeeded
+    steps:
+      - name: get-device-${{ self.device.attributes.id }}
+        description: Fetch full device details
+        forEach:
+          item: device
+          in: ${{ data.findBySpec(inputs.deviceModel, "device") }}
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: get
+          inputs:
+            deviceId: ${{ self.device.attributes.id }}
