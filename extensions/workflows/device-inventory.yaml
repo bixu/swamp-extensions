@@ -1,0 +1,21 @@
+id: a9b72570-66a9-42d2-bd26-5fe746115d8e
+name: device-inventory
+description: Discover all devices in the tailnet — hostname, OS, user, authorization status, tags, connectivity, and key expiry
+version: 1
+inputs:
+  properties:
+    deviceModel:
+      type: string
+      description: Name of the @john/tailscale-device model instance
+  required:
+    - deviceModel
+jobs:
+  - name: discover
+    description: List all devices in the tailnet
+    steps:
+      - name: list-devices
+        description: Fetch all devices with their status, tags, and connectivity info
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: list

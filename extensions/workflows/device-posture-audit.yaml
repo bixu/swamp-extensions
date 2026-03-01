@@ -1,0 +1,49 @@
+id: eccbaba1-896d-4c11-81d3-6e8aa8148403
+name: device-posture-audit
+description: Collect posture data for all devices — discover the fleet and posture integrations, then gather posture attributes per device
+version: 1
+inputs:
+  properties:
+    deviceModel:
+      type: string
+      description: Name of the @john/tailscale-device model instance
+    postureModel:
+      type: string
+      description: Name of the @john/tailscale-posture model instance
+  required:
+    - deviceModel
+    - postureModel
+jobs:
+  - name: discover
+    description: List all devices and posture integrations
+    steps:
+      - name: list-devices
+        description: Fetch all devices in the tailnet
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: list
+      - name: list-posture-integrations
+        description: Fetch all posture integration configurations
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.postureModel }}
+          methodName: list
+  - name: collect-posture
+    description: Collect posture attributes for each discovered device
+    dependsOn:
+      - job: discover
+        condition:
+          type: succeeded
+    steps:
+      - name: get-posture-${{ self.device.attributes.id }}
+        description: Get posture attributes for this device
+        forEach:
+          item: device
+          in: ${{ data.findBySpec(inputs.deviceModel, "device") }}
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: getPosture
+          inputs:
+            deviceId: ${{ self.device.attributes.id }}

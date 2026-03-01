@@ -1,0 +1,69 @@
+id: 86bc7c06-40af-461b-8b27-515a217273a9
+name: user-access-review
+description: User access review — collect all users, devices, ACL policy, and auth keys, then fetch full profiles for each user
+version: 1
+inputs:
+  properties:
+    userModel:
+      type: string
+      description: Name of the @john/tailscale-user model instance
+    deviceModel:
+      type: string
+      description: Name of the @john/tailscale-device model instance
+    aclModel:
+      type: string
+      description: Name of the @john/tailscale-acl model instance
+    keyModel:
+      type: string
+      description: Name of the @john/tailscale-auth-key model instance
+  required:
+    - userModel
+    - deviceModel
+    - aclModel
+    - keyModel
+jobs:
+  - name: collect
+    description: List users, devices, ACL, and auth keys in parallel
+    steps:
+      - name: list-users
+        description: Fetch all users in the tailnet
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.userModel }}
+          methodName: list
+      - name: list-devices
+        description: Fetch all devices for cross-referencing with users
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: list
+      - name: get-acl
+        description: Fetch the ACL policy for access rule analysis
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.aclModel }}
+          methodName: get
+      - name: list-keys
+        description: Fetch all auth keys to identify key ownership
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.keyModel }}
+          methodName: list
+  - name: detail
+    description: Fetch full profile for each discovered user
+    dependsOn:
+      - job: collect
+        condition:
+          type: succeeded
+    steps:
+      - name: get-user-${{ self.user.attributes.id }}
+        description: Fetch full user profile
+        forEach:
+          item: user
+          in: ${{ data.findBySpec(inputs.userModel, "user") }}
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.userModel }}
+          methodName: get
+          inputs:
+            userId: ${{ self.user.attributes.id }}

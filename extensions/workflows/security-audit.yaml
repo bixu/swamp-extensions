@@ -1,0 +1,61 @@
+id: 21b4d635-da69-4d18-a050-2e82c4e2f8fc
+name: security-audit
+description: Full security posture audit — devices, users, ACL policy, webhooks, and tailnet settings
+version: 1
+inputs:
+  properties:
+    deviceModel:
+      type: string
+      description: Name of the @john/tailscale-device model instance
+    userModel:
+      type: string
+      description: Name of the @john/tailscale-user model instance
+    aclModel:
+      type: string
+      description: Name of the @john/tailscale-acl model instance
+    webhookModel:
+      type: string
+      description: Name of the @john/tailscale-webhook model instance
+    settingsModel:
+      type: string
+      description: Name of the @john/tailscale-settings model instance
+  required:
+    - deviceModel
+    - userModel
+    - aclModel
+    - webhookModel
+    - settingsModel
+jobs:
+  - name: collect
+    description: Gather all security-relevant resources from the tailnet
+    steps:
+      - name: list-devices
+        description: Fetch all devices to check authorization status, key expiry, and tags
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: list
+      - name: list-users
+        description: Fetch all users to check roles and approval status
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.userModel }}
+          methodName: list
+      - name: get-acl
+        description: Fetch the ACL policy for rule analysis
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.aclModel }}
+          methodName: get
+      - name: list-webhooks
+        description: Fetch webhooks to verify security event monitoring
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.webhookModel }}
+          methodName: list
+      - name: get-settings
+        description: Fetch tailnet settings to verify security configuration
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.settingsModel }}
+          methodName: get

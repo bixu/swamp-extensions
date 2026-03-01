@@ -1,0 +1,32 @@
+id: c68d9a67-3f7a-49ea-b1f7-0ee821df8bd8
+name: webhook-setup
+description: Create a new webhook and send a test event to verify delivery
+version: 1
+inputs:
+  properties:
+    webhookModel:
+      type: string
+      description: Name of the @john/tailscale-webhook model instance
+    endpointUrl:
+      type: string
+      description: URL to receive webhook events
+    subscriptions:
+      type: array
+      description: "Event types to subscribe to, e.g. ['nodeCreated', 'userCreated']"
+  required:
+    - webhookModel
+    - endpointUrl
+    - subscriptions
+jobs:
+  - name: setup
+    description: Create the webhook and verify with a test event
+    steps:
+      - name: create-webhook
+        description: Create the webhook endpoint with specified subscriptions
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.webhookModel }}
+          methodName: create
+          inputs:
+            endpointUrl: ${{ inputs.endpointUrl }}
+            subscriptions: ${{ inputs.subscriptions }}

@@ -1,0 +1,83 @@
+id: c1f67910-2344-499b-9deb-deb20a300267
+name: compliance-snapshot
+description: Full compliance data collection — tailnet settings, contacts, ACL policy, posture integrations, log config, all users, and all devices
+version: 1
+inputs:
+  properties:
+    settingsModel:
+      type: string
+      description: Name of the @john/tailscale-settings model instance
+    contactModel:
+      type: string
+      description: Name of the @john/tailscale-contact model instance
+    aclModel:
+      type: string
+      description: Name of the @john/tailscale-acl model instance
+    postureModel:
+      type: string
+      description: Name of the @john/tailscale-posture model instance
+    logConfigModel:
+      type: string
+      description: Name of the @john/tailscale-log-config model instance
+    userModel:
+      type: string
+      description: Name of the @john/tailscale-user model instance
+    deviceModel:
+      type: string
+      description: Name of the @john/tailscale-device model instance
+  required:
+    - settingsModel
+    - contactModel
+    - aclModel
+    - postureModel
+    - logConfigModel
+    - userModel
+    - deviceModel
+jobs:
+  - name: collect
+    description: Gather all compliance-relevant data in parallel
+    steps:
+      - name: get-settings
+        description: Fetch tailnet settings for compliance review
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.settingsModel }}
+          methodName: get
+      - name: get-contacts
+        description: Fetch tailnet contact information
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.contactModel }}
+          methodName: get
+      - name: get-acl
+        description: Fetch the current ACL policy
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.aclModel }}
+          methodName: get
+      - name: list-posture
+        description: Fetch all posture integrations
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.postureModel }}
+          methodName: list
+      - name: get-network-log-config
+        description: Fetch network log streaming configuration
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.logConfigModel }}
+          methodName: get
+          inputs:
+            logType: network
+      - name: list-users
+        description: Fetch all users for compliance review
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.userModel }}
+          methodName: list
+      - name: list-devices
+        description: Fetch all devices for compliance review
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.deviceModel }}
+          methodName: list

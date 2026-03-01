@@ -1,0 +1,39 @@
+id: 2995ca75-98d6-4c21-8ef4-55bb91e6d8d9
+name: dns-overview
+description: Complete DNS configuration snapshot — nameservers, search paths, MagicDNS preferences, and split DNS
+version: 1
+inputs:
+  properties:
+    dnsModel:
+      type: string
+      description: Name of the @john/tailscale-dns model instance
+  required:
+    - dnsModel
+jobs:
+  - name: collect
+    description: Gather all DNS configuration from the tailnet
+    steps:
+      - name: nameservers
+        description: Fetch configured DNS nameservers
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.dnsModel }}
+          methodName: getNameservers
+      - name: search-paths
+        description: Fetch DNS search paths
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.dnsModel }}
+          methodName: getSearchPaths
+      - name: preferences
+        description: Fetch MagicDNS preferences
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.dnsModel }}
+          methodName: getPreferences
+      - name: split-dns
+        description: Fetch split DNS configuration
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.dnsModel }}
+          methodName: getSplitDns

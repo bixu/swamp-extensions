@@ -1,0 +1,42 @@
+id: d90fbfb6-3f0a-4d71-b096-7beb79c1e1d8
+name: acl-update
+description: Validate then apply ACL changes — validation must pass before the policy is set
+version: 1
+inputs:
+  properties:
+    aclModel:
+      type: string
+      description: Name of the @john/tailscale-acl model instance
+    acl:
+      type: object
+      description: ACL policy object to validate and apply
+  required:
+    - aclModel
+    - acl
+jobs:
+  - name: validate
+    description: Validate the ACL policy without applying
+    steps:
+      - name: validate-acl
+        description: Run ACL validation against the Tailscale API
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.aclModel }}
+          methodName: validate
+          inputs:
+            acl: ${{ inputs.acl }}
+  - name: apply
+    description: Apply the validated ACL policy
+    dependsOn:
+      - job: validate
+        condition:
+          type: succeeded
+    steps:
+      - name: set-acl
+        description: Set the validated ACL policy
+        task:
+          type: model_method
+          modelIdOrName: ${{ inputs.aclModel }}
+          methodName: set
+          inputs:
+            acl: ${{ inputs.acl }}
