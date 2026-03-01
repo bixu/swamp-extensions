@@ -1,0 +1,13 @@
+type: '@bixu/tailnet-healthcheck'
+typeVersion: 2026.03.01.1
+id: af85140f-d78b-42c3-922c-eb04a141c659
+name: tailnet-healthcheck
+version: 1
+tags: {}
+globalArguments:
+  tailnet: "-"
+  apiKey: ${{ vault.get('slack', 'tailscale_api_key') }}
+  baseUrl: https://api.tailscale.com
+  slackChannel: test-swamp
+  slackToken: ${{ vault.get('slack', 'swamp_bot_oauth_token') }}
+methods: {}
