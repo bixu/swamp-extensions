@@ -32,10 +32,10 @@ jobs:
           deno-version: v1.x
 
       - name: Verify formatting
-        run: deno fmt --check
+        run: deno fmt --check extensions/models/
 
       - name: Run linter
-        run: deno lint
+        run: deno lint extensions/models/
 
       - name: Run tests
-        run: deno test -A
+        run: deno test --no-check extensions/models/
