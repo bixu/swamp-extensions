@@ -1292,3 +1292,63 @@ Deno.test("get with v1 resource throws when configKey is a management key ID", a
     "looks like a v2 Management Key ID",
   );
 });
+
+// =====================================================================
+// create / delete v1 guard tests
+// =====================================================================
+
+Deno.test("create throws for v1 resource (datasets)", async () => {
+  const { context } = mockV1Context();
+
+  await assertRejects(
+    () =>
+      model.methods.create.execute(
+        { resource: "datasets", name: "test-ds" },
+        context,
+      ),
+    Error,
+    '"datasets" is a v1 API resource and does not support the "create" method yet',
+  );
+});
+
+Deno.test("create throws for v1 resource (triggers)", async () => {
+  const { context } = mockV1Context();
+
+  await assertRejects(
+    () =>
+      model.methods.create.execute(
+        { resource: "triggers", name: "test-trigger" },
+        context,
+      ),
+    Error,
+    '"triggers" is a v1 API resource and does not support the "create" method yet',
+  );
+});
+
+Deno.test("delete throws for v1 resource (datasets)", async () => {
+  const { context } = mockV1Context();
+
+  await assertRejects(
+    () =>
+      model.methods.delete.execute(
+        { resource: "datasets", name: "backend" },
+        context,
+      ),
+    Error,
+    '"datasets" is a v1 API resource and does not support the "delete" method yet',
+  );
+});
+
+Deno.test("delete throws for v1 resource (boards)", async () => {
+  const { context } = mockV1Context();
+
+  await assertRejects(
+    () =>
+      model.methods.delete.execute(
+        { resource: "boards", name: "my-board" },
+        context,
+      ),
+    Error,
+    '"boards" is a v1 API resource and does not support the "delete" method yet',
+  );
+});

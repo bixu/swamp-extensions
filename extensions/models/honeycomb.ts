@@ -195,6 +195,12 @@ export const model = {
         name: z.string().describe("Name of the resource to create"),
       }),
       execute: async (args, context) => {
+        if (args.resource in V1_RESOURCE_REGISTRY) {
+          throw new Error(
+            `"${args.resource}" is a v1 API resource and does not support the "create" method yet`,
+          );
+        }
+
         const { teamSlug, base, headers } = connectionInfo(
           context.globalArgs,
         );
@@ -230,6 +236,12 @@ export const model = {
         name: z.string().describe("Name or slug of the resource to delete"),
       }),
       execute: async (args, context) => {
+        if (args.resource in V1_RESOURCE_REGISTRY) {
+          throw new Error(
+            `"${args.resource}" is a v1 API resource and does not support the "delete" method yet`,
+          );
+        }
+
         const { teamSlug, base, headers } = connectionInfo(
           context.globalArgs,
         );
