@@ -149,45 +149,32 @@ Deno.test("validateV2KeyId rejects arbitrary string", () => {
 
 // --- validateV1ConfigKey ---
 
-Deno.test("validateV1ConfigKey accepts valid US config key", () => {
-  validateV1ConfigKey(
-    "hcalk_01test00000000000000000000secret0000000000000000000000000",
-  );
+Deno.test("validateV1ConfigKey accepts bare secret string", () => {
+  validateV1ConfigKey("NcGRfh40mzATnUl8KojQoF");
 });
 
-Deno.test("validateV1ConfigKey accepts valid EU config key", () => {
-  validateV1ConfigKey(
-    "hcelk_01test00000000000000000000secret0000000000000000000000000",
-  );
-});
-
-Deno.test("validateV1ConfigKey rejects management key prefix", () => {
+Deno.test("validateV1ConfigKey rejects management key ID", () => {
   let threw = false;
   try {
-    validateV1ConfigKey(
-      "hcamk_01test00000000000000000000secret0000000000000000000000000",
-    );
+    validateV1ConfigKey("hcamk_01test00000000000000000000");
   } catch (e) {
     threw = true;
     assertEquals(
-      (e as Error).message.includes(
-        "does not look like a v1 Configuration Key",
-      ),
+      (e as Error).message.includes("looks like a v2 Management Key ID"),
       true,
     );
   }
   assertEquals(threw, true);
 });
 
-Deno.test("validateV1ConfigKey rejects key ID without secret", () => {
+Deno.test("validateV1ConfigKey rejects empty string", () => {
   let threw = false;
   try {
-    // 32 chars = just the key ID, no secret appended
-    validateV1ConfigKey("hcalk_01test0000000000000000000");
+    validateV1ConfigKey("");
   } catch (e) {
     threw = true;
     assertEquals(
-      (e as Error).message.includes("looks like just the key ID"),
+      (e as Error).message.includes("configKey is empty"),
       true,
     );
   }
@@ -951,9 +938,8 @@ Deno.test("mapV1Item stores full item as attributes", () => {
 // v1 get method tests
 // =====================================================================
 
-// Full config key: ID (32 chars) + secret (>0 chars) to pass validation
-const TEST_V1_CONFIG_KEY =
-  "hcalk_01test00000000000000000000secret0000000000000000000000000";
+// v1 config keys are bare secrets (no prefix)
+const TEST_V1_CONFIG_KEY = "test-config-key-secret-value";
 
 const v1GlobalArgs = {
   ...globalArgs,
@@ -1115,9 +1101,12 @@ Deno.test("get with datasets throws on API error", async () => {
   }
 });
 
-Deno.test("get with v1 resource throws when configKey has wrong prefix", async () => {
+Deno.test("get with v1 resource throws when configKey is a management key ID", async () => {
   const badKeyContext = {
-    globalArgs: { ...globalArgs, configKey: "hcamk_wrongprefix" },
+    globalArgs: {
+      ...globalArgs,
+      configKey: "hcamk_01test00000000000000000000",
+    },
     writeResource: () => Promise.resolve("handle"),
     logger: { info: () => {} },
   };
@@ -1129,6 +1118,6 @@ Deno.test("get with v1 resource throws when configKey has wrong prefix", async (
         badKeyContext,
       ),
     Error,
-    "does not look like a v1 Configuration Key",
+    "looks like a v2 Management Key ID",
   );
 });

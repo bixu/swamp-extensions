@@ -1,13 +1,11 @@
 // --- Key validation ---
-// Honeycomb key prefixes: hc{region}{type}_ where type is:
-//   mk = management key, lk = configuration key, ik = ingest key
-// Region varies (e.g. "a" for US, "e" for EU), so we match the type
-// suffix only via regex: /^hc.mk_/ for management, /^hc.lk_/ for config.
+// v2 Management Key IDs use prefix hc{region}mk_ (e.g. hcamk_ for US).
+// v1 Configuration Keys are bare secrets with no prefix — the hcalk_
+// prefix is only the key ID shown in the Management API, not part of
+// the actual key value used for auth.
 // See: https://docs.honeycomb.io/get-started/best-practices/api-keys/
 
 const V2_KEY_PATTERN = /^hc.mk_/;
-const V1_CONFIG_KEY_PATTERN = /^hc.lk_/;
-const HONEYCOMB_KEY_ID_LENGTH = 32;
 
 function redactKey(key: string): string {
   return key.length > 10 ? key.slice(0, 10) + "..." : key;
@@ -18,29 +16,25 @@ export function validateV2KeyId(apiKeyId: string): void {
     throw new Error(
       `apiKeyId "${
         redactKey(apiKeyId)
-      }" does not look like a v2 Management Key ` +
-        `(expected prefix matching "hc{region}mk_"). ` +
-        `Configuration keys ("hc_lk_") belong in configKey, not apiKeyId.`,
+      }" does not look like a v2 Management Key ID ` +
+        `(expected prefix matching "hc{region}mk_", e.g. "hcamk_" for US).`,
     );
   }
 }
 
 export function validateV1ConfigKey(configKey: string): void {
-  if (!V1_CONFIG_KEY_PATTERN.test(configKey)) {
+  // Config keys are bare secrets — reject if someone accidentally
+  // passes a key ID (which has a Honeycomb prefix) instead of the secret.
+  if (V2_KEY_PATTERN.test(configKey)) {
     throw new Error(
-      `configKey "${
-        redactKey(configKey)
-      }" does not look like a v1 Configuration Key ` +
-        `(expected prefix matching "hc{region}lk_"). ` +
-        `Management keys ("hc_mk_") belong in apiKeyId, not configKey.`,
+      `configKey looks like a v2 Management Key ID (prefix "${
+        configKey.slice(0, 6)
+      }"). ` +
+        `configKey should be the Configuration Key secret, not a Management Key ID.`,
     );
   }
-  if (configKey.length <= HONEYCOMB_KEY_ID_LENGTH) {
-    throw new Error(
-      `configKey has ${configKey.length} characters, which looks like just the ` +
-        `key ID. The full key (ID + secret concatenated) is required. ` +
-        `If you've lost the secret, create a new Configuration Key in Honeycomb.`,
-    );
+  if (configKey.length === 0) {
+    throw new Error("configKey is empty");
   }
 }
 
