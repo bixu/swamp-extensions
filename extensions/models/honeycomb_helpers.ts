@@ -208,12 +208,17 @@ export const V1_RESOURCE_REGISTRY: Record<
   "slos": { datasetScoped: true },
   "boards": { datasetScoped: false },
   "recipients": { datasetScoped: false },
+  "queries": { datasetScoped: true },
+  "query-annotations": { datasetScoped: true },
+  "query-results": { datasetScoped: true },
 };
 
 const V1_API_PATH_MAP: Record<string, string> = {
   "dataset-definitions": "dataset_definitions",
   "derived-columns": "derived_columns",
   "burn-alerts": "burn_alerts",
+  "query-annotations": "query_annotations",
+  "query-results": "query_results",
 };
 
 export function resolveV1Request(

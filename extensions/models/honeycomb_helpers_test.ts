@@ -1036,6 +1036,75 @@ Deno.test("resolveV1Request resolves recipients URL", () => {
   assertEquals(url, "https://api.honeycomb.io/1/recipients");
 });
 
+Deno.test("resolveV1Request resolves queries with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "queries",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/queries/my-ds");
+});
+
+Deno.test("resolveV1Request throws when dataset missing for queries", () => {
+  let threw = false;
+  try {
+    resolveV1Request("https://api.honeycomb.io", "queries");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message,
+      'Resource "queries" requires a dataset argument',
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("resolveV1Request resolves query-annotations with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "query-annotations",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/query_annotations/my-ds");
+});
+
+Deno.test("resolveV1Request throws when dataset missing for query-annotations", () => {
+  let threw = false;
+  try {
+    resolveV1Request("https://api.honeycomb.io", "query-annotations");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message,
+      'Resource "query-annotations" requires a dataset argument',
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("resolveV1Request resolves query-results with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "query-results",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/query_results/my-ds");
+});
+
+Deno.test("resolveV1Request throws when dataset missing for query-results", () => {
+  let threw = false;
+  try {
+    resolveV1Request("https://api.honeycomb.io", "query-results");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message,
+      'Resource "query-results" requires a dataset argument',
+    );
+  }
+  assertEquals(threw, true);
+});
+
 // --- mapV1Item ---
 
 Deno.test("mapV1Item uses slug as instanceName when available", () => {
