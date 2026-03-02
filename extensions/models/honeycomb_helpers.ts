@@ -1,3 +1,15 @@
+// --- Shared fetch helpers ---
+
+/**
+ * Assert that a fetch Response is ok; throw a descriptive error otherwise.
+ */
+export async function assertOk(resp: Response): Promise<void> {
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`Honeycomb API error ${resp.status}: ${body}`);
+  }
+}
+
 // --- Key validation ---
 // v2 Management Key IDs use prefix hc{region}mk_ (e.g. hcamk_ for US).
 // v1 Configuration Keys are bare secrets with no prefix — the hcalk_

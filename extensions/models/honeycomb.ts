@@ -1,5 +1,6 @@
 import { z } from "npm:zod@4";
 import {
+  assertOk,
   authHeadersV1,
   baseUrl,
   buildSummaryTable,
@@ -94,10 +95,7 @@ export const model = {
           const headers = authHeadersV1(trimmedKey);
 
           const resp = await fetch(url, { headers });
-          if (!resp.ok) {
-            const body = await resp.text();
-            throw new Error(`Honeycomb API error ${resp.status}: ${body}`);
-          }
+          await assertOk(resp);
 
           const json = await resp.json();
 
@@ -164,11 +162,7 @@ export const model = {
         do {
           const url = nextUrl ?? collectionUrl;
           const resp = await fetch(url, { headers });
-
-          if (!resp.ok) {
-            const body = await resp.text();
-            throw new Error(`Honeycomb API error ${resp.status}: ${body}`);
-          }
+          await assertOk(resp);
 
           const json = await resp.json();
 
@@ -216,11 +210,7 @@ export const model = {
             },
           }),
         });
-
-        if (!resp.ok) {
-          const body = await resp.text();
-          throw new Error(`Honeycomb API error ${resp.status}: ${body}`);
-        }
+        await assertOk(resp);
 
         const json = await resp.json();
         const mapped = mapApiItem(json.data, args.resource);
@@ -246,11 +236,7 @@ export const model = {
         const collectionUrl = resourceUrl(base, teamSlug, args.resource);
 
         const listResp = await fetch(collectionUrl, { headers });
-
-        if (!listResp.ok) {
-          const body = await listResp.text();
-          throw new Error(`Honeycomb API error ${listResp.status}: ${body}`);
-        }
+        await assertOk(listResp);
 
         const listJson = await listResp.json();
         const target = findByNameOrSlug(listJson.data, args.name);
@@ -265,11 +251,7 @@ export const model = {
           `${collectionUrl}/${encodeURIComponent(target.id)}`,
           { method: "DELETE", headers },
         );
-
-        if (!deleteResp.ok) {
-          const body = await deleteResp.text();
-          throw new Error(`Honeycomb API error ${deleteResp.status}: ${body}`);
-        }
+        await assertOk(deleteResp);
 
         return { dataHandles: [] };
       },

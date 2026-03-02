@@ -3,6 +3,7 @@ import {
   assertRejects,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  assertOk,
   authHeaders,
   authHeadersV1,
   baseUrl,
@@ -18,6 +19,31 @@ import {
   validateV2KeyId,
 } from "./honeycomb_helpers.ts";
 import { model } from "./honeycomb.ts";
+
+// --- assertOk ---
+
+Deno.test("assertOk does nothing for a successful response", async () => {
+  const resp = new Response("ok", { status: 200 });
+  await assertOk(resp); // should not throw
+});
+
+Deno.test("assertOk throws with status and body for a failed response", async () => {
+  const resp = new Response("Not Found", { status: 404 });
+  await assertRejects(
+    () => assertOk(resp),
+    Error,
+    "Honeycomb API error 404: Not Found",
+  );
+});
+
+Deno.test("assertOk includes response body in error message", async () => {
+  const resp = new Response('{"error":"forbidden"}', { status: 403 });
+  await assertRejects(
+    () => assertOk(resp),
+    Error,
+    '{"error":"forbidden"}',
+  );
+});
 
 // --- baseUrl ---
 
