@@ -883,6 +883,20 @@ Deno.test("resolveV1Request throws for unknown resource", () => {
   assertEquals(threw, true);
 });
 
+Deno.test("resolveV1Request appends slug for slugFilterable resource", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "datasets",
+    "my-dataset",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/datasets/my-dataset");
+});
+
+Deno.test("resolveV1Request omits slug for datasets when not provided", () => {
+  const url = resolveV1Request("https://api.honeycomb.io", "datasets");
+  assertEquals(url, "https://api.honeycomb.io/1/datasets");
+});
+
 Deno.test("resolveV1Request throws when dataset missing for dataset-scoped resource", () => {
   let threw = false;
   try {
@@ -1095,6 +1109,39 @@ Deno.test("get with datasets throws on API error", async () => {
         ),
       Error,
       "Honeycomb API error 401",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("get with datasets and dataset slug fetches single dataset", async () => {
+  const { context, written } = mockV1Context();
+  const stub = stubFetch([{
+    ok: true,
+    body: {
+      slug: "backend",
+      name: "Backend",
+      created_at: "2026-01-01",
+      last_written_at: "2026-03-01",
+    },
+  }]);
+
+  try {
+    const result = await model.methods.get.execute(
+      { resource: "datasets", dataset: "backend" },
+      context,
+    );
+
+    assertEquals(result.dataHandles.length, 1);
+    assertEquals(written.length, 1);
+    assertEquals(written[0].instance, "backend");
+    assertEquals(written[0].spec, "v1resource");
+
+    // Verify slug-filtered URL
+    assertEquals(
+      stub.calls[0].url,
+      "https://api.honeycomb.io/1/datasets/backend",
     );
   } finally {
     stub.restore();

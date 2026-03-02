@@ -197,9 +197,9 @@ export function resourceUrlV1(
 
 export const V1_RESOURCE_REGISTRY: Record<
   string,
-  { datasetScoped: boolean }
+  { datasetScoped: boolean; slugFilterable?: boolean }
 > = {
-  "datasets": { datasetScoped: false },
+  "datasets": { datasetScoped: false, slugFilterable: true },
   "dataset-definitions": { datasetScoped: true },
 };
 
@@ -222,11 +222,10 @@ export function resolveV1Request(
     );
   }
   const apiPath = V1_API_PATH_MAP[resource] ?? resource;
-  return resourceUrlV1(
-    base,
-    apiPath,
-    entry.datasetScoped ? dataset : undefined,
-  );
+  const slug = entry.datasetScoped
+    ? dataset
+    : (entry.slugFilterable ? dataset : undefined);
+  return resourceUrlV1(base, apiPath, slug);
 }
 
 export function mapV1Item(

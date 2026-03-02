@@ -42,7 +42,7 @@ const ResourceArg = z.object({
     "Honeycomb resource type (e.g. environments, datasets)",
   ),
   dataset: z.string().optional().describe(
-    "Dataset slug (required for dataset-scoped v1 resources)",
+    "Dataset slug (required for dataset-scoped resources, optional filter for datasets)",
   ),
   json: z.boolean().default(false).describe(
     "Output raw JSON instead of an ASCII table",
@@ -51,7 +51,7 @@ const ResourceArg = z.object({
 
 export const model = {
   type: "@bixu/honeycomb",
-  version: "2026.03.02.9",
+  version: "2026.03.02.10",
   globalArguments: GlobalArgsSchema,
   resources: {
     resource: {
@@ -101,15 +101,26 @@ export const model = {
 
           const json = await resp.json();
 
-          // Normalize: arrays stay as-is, objects become array of entries
-          const items: Array<Record<string, unknown>> = Array.isArray(json)
-            ? json
-            : Object.entries(json).map(([key, value]) => ({
+          const entry = V1_RESOURCE_REGISTRY[args.resource];
+          const isSingleItem = entry.slugFilterable && args.dataset;
+
+          // Normalize response into an array of items:
+          // - Single item fetch (e.g. /1/datasets/{slug}): wrap in array
+          // - Array response: use as-is
+          // - Object response (e.g. dataset-definitions): convert entries
+          let items: Array<Record<string, unknown>>;
+          if (isSingleItem) {
+            items = [json as Record<string, unknown>];
+          } else if (Array.isArray(json)) {
+            items = json;
+          } else {
+            items = Object.entries(json).map(([key, value]) => ({
               name: key,
               ...(typeof value === "object" && value !== null
                 ? value as Record<string, unknown>
                 : { value }),
             }));
+          }
 
           const handles = [];
           const allItems = [];
