@@ -92,11 +92,15 @@ Deno.test("splitIntoBlocks returns single block for short text", () => {
   );
 });
 
-Deno.test("splitIntoBlocks returns single block for text without section breaks", () => {
-  // Text without bold headings (*Heading*) won't split on section boundaries
+Deno.test("splitIntoBlocks hard-splits text without section breaks", () => {
+  // Text without bold headings (*Heading*) must still be split to fit within the limit
   const longText = "x".repeat(4000);
   const blocks = splitIntoBlocks(longText, 3000);
-  assertEquals(blocks.length, 1);
+  assertEquals(blocks.length > 1, true);
+  for (const block of blocks) {
+    const b = block as { text: { text: string } };
+    assertEquals(b.text.text.length <= 3000, true);
+  }
 });
 
 Deno.test("splitIntoBlocks splits on section boundaries", () => {
