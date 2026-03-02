@@ -1,10 +1,16 @@
 import { z } from "npm:zod@4";
 import {
+  authHeadersV1,
+  baseUrl,
   buildSummaryTable,
   connectionInfo,
   findByNameOrSlug,
   mapApiItem,
+  mapV1Item,
+  resolveV1Request,
   resourceUrl,
+  V1_RESOURCE_REGISTRY,
+  validateV1ConfigKey,
 } from "./honeycomb_helpers.ts";
 
 const GlobalArgsSchema = z.object({
@@ -15,6 +21,9 @@ const GlobalArgsSchema = z.object({
     .enum(["us", "eu"])
     .default("us")
     .describe("Honeycomb region (us or eu)"),
+  configKey: z.string().optional().describe(
+    "Honeycomb Configuration Key (for v1 API resources)",
+  ),
 });
 
 const ResourceSchema = z.object({
@@ -23,9 +32,17 @@ const ResourceSchema = z.object({
   attributes: z.any(),
 });
 
+const V1ResourceSchema = z.object({
+  type: z.string(),
+  attributes: z.any(),
+});
+
 const ResourceArg = z.object({
   resource: z.string().describe(
     "Honeycomb resource type (e.g. environments, datasets)",
+  ),
+  dataset: z.string().optional().describe(
+    "Dataset slug (required for dataset-scoped resources, optional filter for datasets)",
   ),
   json: z.boolean().default(false).describe(
     "Output raw JSON instead of an ASCII table",
@@ -34,12 +51,18 @@ const ResourceArg = z.object({
 
 export const model = {
   type: "@bixu/honeycomb",
-  version: "2026.03.02.6",
+  version: "2026.03.02.10",
   globalArguments: GlobalArgsSchema,
   resources: {
     resource: {
-      description: "Honeycomb API resource",
+      description: "Honeycomb v2 API resource",
       schema: ResourceSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 10,
+    },
+    v1resource: {
+      description: "Honeycomb v1 API resource",
+      schema: V1ResourceSchema,
       lifetime: "infinite" as const,
       garbageCollection: 10,
     },
@@ -49,6 +72,87 @@ export const model = {
       description: "List all resources of a given type",
       arguments: ResourceArg,
       execute: async (args, context) => {
+        const isV1 = args.resource in V1_RESOURCE_REGISTRY;
+
+        if (isV1) {
+          const configKey = context.globalArgs.configKey;
+          if (!configKey) {
+            throw new Error(
+              `v1 resource "${args.resource}" requires configKey in globalArguments`,
+            );
+          }
+
+          const trimmedKey = String(configKey).trim();
+          validateV1ConfigKey(trimmedKey);
+
+          const base = baseUrl(context.globalArgs.region);
+          const url = resolveV1Request(
+            base,
+            args.resource,
+            args.dataset,
+          );
+          const headers = authHeadersV1(trimmedKey);
+
+          const resp = await fetch(url, { headers });
+          if (!resp.ok) {
+            const body = await resp.text();
+            throw new Error(`Honeycomb API error ${resp.status}: ${body}`);
+          }
+
+          const json = await resp.json();
+
+          const entry = V1_RESOURCE_REGISTRY[args.resource];
+          const isSingleItem = entry.slugFilterable && args.dataset;
+
+          // Normalize response into an array of items:
+          // - Single item fetch (e.g. /1/datasets/{slug}): wrap in array
+          // - Array response: use as-is
+          // - Object response (e.g. dataset-definitions): convert entries
+          let items: Array<Record<string, unknown>>;
+          if (isSingleItem) {
+            items = [json as Record<string, unknown>];
+          } else if (Array.isArray(json)) {
+            items = json;
+          } else {
+            items = Object.entries(json).map(([key, value]) => ({
+              name: key,
+              ...(typeof value === "object" && value !== null
+                ? value as Record<string, unknown>
+                : { value }),
+            }));
+          }
+
+          const handles = [];
+          const allItems = [];
+
+          for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            allItems.push(item);
+            const mapped = mapV1Item(item, args.resource, i);
+            const handle = await context.writeResource(
+              "v1resource",
+              mapped.instanceName,
+              mapped.data,
+            );
+            handles.push(handle);
+          }
+
+          const output = args.json
+            ? JSON.stringify(allItems, null, 2) + "\n"
+            : buildSummaryTable(
+              args.resource,
+              allItems.map((item, i) => ({
+                id: (item.slug as string) ?? (item.name as string) ??
+                  `${args.resource}-${i}`,
+                attributes: item,
+              })),
+            ).join("\n") + "\n";
+          await Deno.stdout.write(new TextEncoder().encode(output));
+
+          return { dataHandles: handles };
+        }
+
+        // v2 path (existing behavior)
         const { teamSlug, base, headers } = connectionInfo(
           context.globalArgs,
         );
