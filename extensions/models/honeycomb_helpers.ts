@@ -139,15 +139,19 @@ export function buildSummaryTable(
     flattenAttributes(item.attributes ?? {})
   );
 
-  // Collect all keys across items, name first
+  // Collect all keys across items; use key_name as primary column if
+  // items have key_name but not name (e.g. columns resource).
   const keySet = new Set<string>();
   for (const row of flatRows) {
     for (const key of Object.keys(row)) {
       keySet.add(key);
     }
   }
-  keySet.delete("name");
-  const columns = ["name", ...keySet];
+  const primaryCol = !keySet.has("name") && keySet.has("key_name")
+    ? "key_name"
+    : "name";
+  keySet.delete(primaryCol);
+  const columns = [primaryCol, ...keySet];
 
   // Build rows
   const rows = flatRows.map((flat) => columns.map((col) => flat[col] ?? ""));
@@ -204,10 +208,13 @@ export const V1_RESOURCE_REGISTRY: Record<
   "triggers": { datasetScoped: true },
   "boards": { datasetScoped: false },
   "recipients": { datasetScoped: false },
+  "columns": { datasetScoped: true },
+  "derived-columns": { datasetScoped: true },
 };
 
 const V1_API_PATH_MAP: Record<string, string> = {
   "dataset-definitions": "dataset_definitions",
+  "derived-columns": "derived_columns",
 };
 
 export function resolveV1Request(
