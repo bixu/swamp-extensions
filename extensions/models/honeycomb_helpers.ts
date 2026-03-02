@@ -1,3 +1,43 @@
+// --- Key validation ---
+// v2 Management Key IDs use prefix hc{region}mk_ (e.g. hcamk_ for US).
+// v1 Configuration Keys are bare secrets with no prefix — the hcalk_
+// prefix is only the key ID shown in the Management API, not part of
+// the actual key value used for auth.
+// See: https://docs.honeycomb.io/get-started/best-practices/api-keys/
+
+const V2_KEY_PATTERN = /^hc.mk_/;
+
+function redactKey(key: string): string {
+  return key.length > 10 ? key.slice(0, 10) + "..." : key;
+}
+
+export function validateV2KeyId(apiKeyId: string): void {
+  if (!V2_KEY_PATTERN.test(apiKeyId)) {
+    throw new Error(
+      `apiKeyId "${
+        redactKey(apiKeyId)
+      }" does not look like a v2 Management Key ID ` +
+        `(expected prefix matching "hc{region}mk_", e.g. "hcamk_" for US).`,
+    );
+  }
+}
+
+export function validateV1ConfigKey(configKey: string): void {
+  // Config keys are bare secrets — reject if someone accidentally
+  // passes a key ID (which has a Honeycomb prefix) instead of the secret.
+  if (V2_KEY_PATTERN.test(configKey)) {
+    throw new Error(
+      `configKey looks like a v2 Management Key ID (prefix "${
+        configKey.slice(0, 6)
+      }"). ` +
+        `configKey should be the Configuration Key secret, not a Management Key ID.`,
+    );
+  }
+  if (configKey.length === 0) {
+    throw new Error("configKey is empty");
+  }
+}
+
 export function baseUrl(region: string): string {
   return region === "eu"
     ? "https://api.eu1.honeycomb.io"
@@ -34,6 +74,7 @@ export function connectionInfo(globalArgs: {
   const teamSlug = String(globalArgs.teamSlug).trim();
   const apiKeyId = String(globalArgs.apiKeyId).trim();
   const apiKeySecret = String(globalArgs.apiKeySecret).trim();
+  validateV2KeyId(apiKeyId);
   const region = globalArgs.region;
   const base = baseUrl(region);
   const headers = authHeaders(apiKeyId, apiKeySecret);
@@ -128,6 +169,80 @@ export function buildSummaryTable(
   lines.push(top);
 
   return lines;
+}
+
+// --- v1 API support ---
+
+export function authHeadersV1(
+  configKey: string,
+): Record<string, string> {
+  return {
+    "X-Honeycomb-Team": configKey,
+    "Content-Type": "application/json",
+  };
+}
+
+export function resourceUrlV1(
+  base: string,
+  resource: string,
+  datasetSlug?: string,
+): string {
+  if (datasetSlug) {
+    return `${base}/1/${encodeURIComponent(resource)}/${
+      encodeURIComponent(datasetSlug)
+    }`;
+  }
+  return `${base}/1/${encodeURIComponent(resource)}`;
+}
+
+export const V1_RESOURCE_REGISTRY: Record<
+  string,
+  { datasetScoped: boolean; slugFilterable?: boolean }
+> = {
+  "datasets": { datasetScoped: false, slugFilterable: true },
+  "dataset-definitions": { datasetScoped: true },
+};
+
+const V1_API_PATH_MAP: Record<string, string> = {
+  "dataset-definitions": "dataset_definitions",
+};
+
+export function resolveV1Request(
+  base: string,
+  resource: string,
+  dataset?: string,
+): string {
+  const entry = V1_RESOURCE_REGISTRY[resource];
+  if (!entry) {
+    throw new Error(`Unknown v1 resource: ${resource}`);
+  }
+  if (entry.datasetScoped && !dataset) {
+    throw new Error(
+      `Resource "${resource}" requires a dataset argument`,
+    );
+  }
+  const apiPath = V1_API_PATH_MAP[resource] ?? resource;
+  const slug = entry.datasetScoped
+    ? dataset
+    : (entry.slugFilterable ? dataset : undefined);
+  return resourceUrlV1(base, apiPath, slug);
+}
+
+export function mapV1Item(
+  item: Record<string, unknown>,
+  resource: string,
+  index: number,
+): { instanceName: string; data: Record<string, unknown> } {
+  const instanceName = (item.slug as string) ??
+    (item.name as string) ??
+    `${resource}-${index}`;
+  return {
+    instanceName,
+    data: {
+      type: resource,
+      attributes: item,
+    },
+  };
 }
 
 export function findByNameOrSlug(
