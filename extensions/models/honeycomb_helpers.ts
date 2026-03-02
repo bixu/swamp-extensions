@@ -203,6 +203,7 @@ export const V1_RESOURCE_REGISTRY: Record<
   "dataset-definitions": { datasetScoped: true },
   "triggers": { datasetScoped: true },
   "boards": { datasetScoped: false },
+  "recipients": { datasetScoped: false },
 };
 
 const V1_API_PATH_MAP: Record<string, string> = {
