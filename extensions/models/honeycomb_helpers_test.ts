@@ -586,6 +586,113 @@ Deno.test("get uses EU endpoint when region is eu", async () => {
   }
 });
 
+// -- json output --
+
+Deno.test("get with json=true writes JSON to stdout", async () => {
+  const { context } = mockContext();
+  const envData = [
+    {
+      id: "env-1",
+      type: "environments",
+      attributes: { name: "Prod", slug: "prod" },
+    },
+  ];
+  const stub = stubFetch([{
+    ok: true,
+    body: { data: envData, links: {} },
+  }]);
+
+  const chunks: Uint8Array[] = [];
+  const originalWrite = Deno.stdout.write.bind(Deno.stdout);
+  Deno.stdout.write = (p: Uint8Array) => {
+    chunks.push(p);
+    return Promise.resolve(p.length);
+  };
+
+  try {
+    await model.methods.get.execute(
+      { resource: "environments", json: true },
+      context,
+    );
+
+    const output = new TextDecoder().decode(chunks[0]);
+    const parsed = JSON.parse(output);
+    assertEquals(parsed.length, 1);
+    assertEquals(parsed[0].id, "env-1");
+    assertEquals(parsed[0].attributes.name, "Prod");
+  } finally {
+    Deno.stdout.write = originalWrite;
+    stub.restore();
+  }
+});
+
+Deno.test("get with json=true writes empty array for no results", async () => {
+  const { context } = mockContext();
+  const stub = stubFetch([{
+    ok: true,
+    body: { data: [], links: {} },
+  }]);
+
+  const chunks: Uint8Array[] = [];
+  const originalWrite = Deno.stdout.write.bind(Deno.stdout);
+  Deno.stdout.write = (p: Uint8Array) => {
+    chunks.push(p);
+    return Promise.resolve(p.length);
+  };
+
+  try {
+    await model.methods.get.execute(
+      { resource: "environments", json: true },
+      context,
+    );
+
+    const output = new TextDecoder().decode(chunks[0]);
+    const parsed = JSON.parse(output);
+    assertEquals(parsed.length, 0);
+  } finally {
+    Deno.stdout.write = originalWrite;
+    stub.restore();
+  }
+});
+
+Deno.test("get with json=false writes ASCII table (default behavior)", async () => {
+  const { context } = mockContext();
+  const stub = stubFetch([{
+    ok: true,
+    body: {
+      data: [{
+        id: "env-1",
+        type: "environments",
+        attributes: { name: "Prod", slug: "prod" },
+      }],
+      links: {},
+    },
+  }]);
+
+  const chunks: Uint8Array[] = [];
+  const originalWrite = Deno.stdout.write.bind(Deno.stdout);
+  Deno.stdout.write = (p: Uint8Array) => {
+    chunks.push(p);
+    return Promise.resolve(p.length);
+  };
+
+  try {
+    await model.methods.get.execute(
+      { resource: "environments", json: false },
+      context,
+    );
+
+    const output = new TextDecoder().decode(chunks[0]);
+    // ASCII table output should NOT be valid JSON
+    assertEquals(output.startsWith("["), false);
+    // Should contain the table content
+    assertEquals(output.includes("Prod"), true);
+  } finally {
+    Deno.stdout.write = originalWrite;
+    stub.restore();
+  }
+});
+
 Deno.test("get sends correct auth headers", async () => {
   const { context } = mockContext();
   const stub = stubFetch([{

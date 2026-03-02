@@ -27,6 +27,9 @@ const ResourceArg = z.object({
   resource: z.string().describe(
     "Honeycomb resource type (e.g. environments, datasets)",
   ),
+  json: z.boolean().default(false).describe(
+    "Output raw JSON instead of an ASCII table",
+  ),
 });
 
 export const model = {
@@ -80,9 +83,10 @@ export const model = {
           nextUrl = next ? `${base}${next}` : null;
         } while (nextUrl);
 
-        const table = buildSummaryTable(args.resource, allItems)
-          .join("\n") + "\n";
-        await Deno.stdout.write(new TextEncoder().encode(table));
+        const output = args.json
+          ? JSON.stringify(allItems, null, 2) + "\n"
+          : buildSummaryTable(args.resource, allItems).join("\n") + "\n";
+        await Deno.stdout.write(new TextEncoder().encode(output));
 
         return { dataHandles: handles };
       },
