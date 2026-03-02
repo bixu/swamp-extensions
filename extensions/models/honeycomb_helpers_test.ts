@@ -362,6 +362,19 @@ Deno.test("buildSummaryTable handles boolean values", () => {
   assertEquals(dataRow.includes("false"), true);
 });
 
+Deno.test("buildSummaryTable uses key_name as primary column when no name present", () => {
+  const lines = buildSummaryTable("columns", [
+    { id: "1", attributes: { key_name: "duration_ms", type: "float" } },
+    { id: "2", attributes: { key_name: "status_code", type: "integer" } },
+  ]);
+  // Header row should start with key_name
+  assertEquals(lines[1].includes("key_name"), true);
+  assertEquals(lines[1].includes("type"), true);
+  // Data row should have the key_name values
+  assertEquals(lines[3].includes("duration_ms"), true);
+  assertEquals(lines[4].includes("status_code"), true);
+});
+
 // --- get method (stubbed fetch) ---
 
 const globalArgs = {
@@ -948,6 +961,52 @@ Deno.test("resolveV1Request resolves recipients without dataset", () => {
     "recipients",
   );
   assertEquals(url, "https://api.honeycomb.io/1/recipients");
+});
+
+Deno.test("resolveV1Request resolves columns with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "columns",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/columns/my-ds");
+});
+
+Deno.test("resolveV1Request throws when dataset missing for columns", () => {
+  let threw = false;
+  try {
+    resolveV1Request("https://api.honeycomb.io", "columns");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message,
+      'Resource "columns" requires a dataset argument',
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("resolveV1Request resolves derived-columns with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "derived-columns",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/derived_columns/my-ds");
+});
+
+Deno.test("resolveV1Request throws when dataset missing for derived-columns", () => {
+  let threw = false;
+  try {
+    resolveV1Request("https://api.honeycomb.io", "derived-columns");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message,
+      'Resource "derived-columns" requires a dataset argument',
+    );
+  }
+  assertEquals(threw, true);
 });
 
 // --- mapV1Item ---
