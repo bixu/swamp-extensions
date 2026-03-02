@@ -201,10 +201,13 @@ export const V1_RESOURCE_REGISTRY: Record<
 > = {
   "datasets": { datasetScoped: false, slugFilterable: true },
   "dataset-definitions": { datasetScoped: true },
+  "markers": { datasetScoped: true },
+  "marker-settings": { datasetScoped: true },
 };
 
 const V1_API_PATH_MAP: Record<string, string> = {
   "dataset-definitions": "dataset_definitions",
+  "marker-settings": "marker_settings",
 };
 
 export function resolveV1Request(

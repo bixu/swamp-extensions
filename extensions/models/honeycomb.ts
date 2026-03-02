@@ -51,7 +51,7 @@ const ResourceArg = z.object({
 
 export const model = {
   type: "@bixu/honeycomb",
-  version: "2026.03.02.10",
+  version: "2026.03.02.12",
   globalArguments: GlobalArgsSchema,
   resources: {
     resource: {
