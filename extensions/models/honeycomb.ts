@@ -1,0 +1,174 @@
+import { z } from "npm:zod@4";
+import {
+  buildSummaryTable,
+  connectionInfo,
+  findByNameOrSlug,
+  mapApiItem,
+  resourceUrl,
+} from "./honeycomb_helpers.ts";
+
+const GlobalArgsSchema = z.object({
+  teamSlug: z.string().describe("Honeycomb team slug"),
+  apiKeyId: z.string().describe("Honeycomb Management Key ID"),
+  apiKeySecret: z.string().describe("Honeycomb Management Key secret"),
+  region: z
+    .enum(["us", "eu"])
+    .default("us")
+    .describe("Honeycomb region (us or eu)"),
+});
+
+const ResourceSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  attributes: z.any(),
+});
+
+const ResourceArg = z.object({
+  resource: z.string().describe(
+    "Honeycomb resource type (e.g. environments, datasets)",
+  ),
+  json: z.boolean().default(false).describe(
+    "Output raw JSON instead of an ASCII table",
+  ),
+});
+
+export const model = {
+  type: "@bixu/honeycomb",
+  version: "2026.03.02.6",
+  globalArguments: GlobalArgsSchema,
+  resources: {
+    resource: {
+      description: "Honeycomb API resource",
+      schema: ResourceSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 10,
+    },
+  },
+  methods: {
+    get: {
+      description: "List all resources of a given type",
+      arguments: ResourceArg,
+      execute: async (args, context) => {
+        const { teamSlug, base, headers } = connectionInfo(
+          context.globalArgs,
+        );
+        const collectionUrl = resourceUrl(base, teamSlug, args.resource);
+        const handles = [];
+        const allItems = [];
+        let nextUrl: string | null = null;
+
+        do {
+          const url = nextUrl ?? collectionUrl;
+          const resp = await fetch(url, { headers });
+
+          if (!resp.ok) {
+            const body = await resp.text();
+            throw new Error(`Honeycomb API error ${resp.status}: ${body}`);
+          }
+
+          const json = await resp.json();
+
+          for (const item of json.data) {
+            allItems.push(item);
+            const mapped = mapApiItem(item, args.resource);
+            const handle = await context.writeResource(
+              "resource",
+              mapped.instanceName,
+              mapped.data,
+            );
+            handles.push(handle);
+          }
+
+          const next = json.links?.next;
+          nextUrl = next ? `${base}${next}` : null;
+        } while (nextUrl);
+
+        const output = args.json
+          ? JSON.stringify(allItems, null, 2) + "\n"
+          : buildSummaryTable(args.resource, allItems).join("\n") + "\n";
+        await Deno.stdout.write(new TextEncoder().encode(output));
+
+        return { dataHandles: handles };
+      },
+    },
+    create: {
+      description: "Create a new resource of a given type",
+      arguments: ResourceArg.extend({
+        name: z.string().describe("Name of the resource to create"),
+      }),
+      execute: async (args, context) => {
+        const { teamSlug, base, headers } = connectionInfo(
+          context.globalArgs,
+        );
+        const collectionUrl = resourceUrl(base, teamSlug, args.resource);
+
+        const resp = await fetch(collectionUrl, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            data: {
+              type: args.resource,
+              attributes: { name: args.name },
+            },
+          }),
+        });
+
+        if (!resp.ok) {
+          const body = await resp.text();
+          throw new Error(`Honeycomb API error ${resp.status}: ${body}`);
+        }
+
+        const json = await resp.json();
+        const mapped = mapApiItem(json.data, args.resource);
+
+        const handle = await context.writeResource(
+          "resource",
+          mapped.instanceName,
+          mapped.data,
+        );
+
+        return { dataHandles: [handle] };
+      },
+    },
+    delete: {
+      description: "Delete a resource by name or slug",
+      arguments: ResourceArg.extend({
+        name: z.string().describe("Name or slug of the resource to delete"),
+      }),
+      execute: async (args, context) => {
+        const { teamSlug, base, headers } = connectionInfo(
+          context.globalArgs,
+        );
+        const collectionUrl = resourceUrl(base, teamSlug, args.resource);
+
+        const listResp = await fetch(collectionUrl, { headers });
+
+        if (!listResp.ok) {
+          const body = await listResp.text();
+          throw new Error(`Honeycomb API error ${listResp.status}: ${body}`);
+        }
+
+        const listJson = await listResp.json();
+        const target = findByNameOrSlug(listJson.data, args.name);
+
+        if (!target) {
+          throw new Error(
+            `No ${args.resource} found matching "${args.name}"`,
+          );
+        }
+
+        const deleteResp = await fetch(
+          `${collectionUrl}/${encodeURIComponent(target.id)}`,
+          { method: "DELETE", headers },
+        );
+
+        if (!deleteResp.ok) {
+          const body = await deleteResp.text();
+          throw new Error(`Honeycomb API error ${deleteResp.status}: ${body}`);
+        }
+
+        return { dataHandles: [] };
+      },
+    },
+  },
+};
