@@ -55,7 +55,7 @@ export function buildCsv(rawDevices: Record<string, unknown>[]): string {
   return lines.join("\n");
 }
 
-const SECURITY_BULLETIN_URL = "https://tailscale.com/security-bulletins";
+export const SECURITY_BULLETIN_URL = "https://tailscale.com/security-bulletins";
 
 export function buildOutdatedClientsMarkdown(
   devices: Device[],

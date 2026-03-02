@@ -8,6 +8,7 @@ import {
   compareVersions,
   type Device,
   isBelow,
+  SECURITY_BULLETIN_URL,
 } from "./tailnet_healthcheck_helpers.ts";
 
 // Fallback minimum safe client version, used when the dynamic lookup of
@@ -16,7 +17,6 @@ import {
 // TS-2026-001 (High, 2026-01-15) — tssentinelId command injection
 //   Affected: macOS 1.84.0–1.92.3 — Fixed in: 1.94.0
 const DEFAULT_SECURITY_FLOOR = "1.94.0";
-const SECURITY_BULLETIN_URL = "https://tailscale.com/security-bulletins";
 const SECURITY_BULLETIN_RSS =
   "https://tailscale.com/security-bulletins/index.xml";
 
