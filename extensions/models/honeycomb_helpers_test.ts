@@ -14,6 +14,8 @@ import {
   resolveV1Request,
   resourceUrl,
   resourceUrlV1,
+  validateV1ConfigKey,
+  validateV2KeyId,
 } from "./honeycomb_helpers.ts";
 import { model } from "./honeycomb.ts";
 
@@ -76,18 +78,21 @@ Deno.test("resourceUrl encodes resource type", () => {
 Deno.test("connectionInfo trims whitespace from credentials", () => {
   const info = connectionInfo({
     teamSlug: "  my-team  ",
-    apiKeyId: "  key-id  ",
+    apiKeyId: "  hcamk_test123  ",
     apiKeySecret: "  key-secret  ",
     region: "us",
   });
   assertEquals(info.teamSlug, "my-team");
-  assertEquals(info.headers.Authorization, "Bearer key-id:key-secret");
+  assertEquals(
+    info.headers.Authorization,
+    "Bearer hcamk_test123:key-secret",
+  );
 });
 
 Deno.test("connectionInfo uses EU base for eu region", () => {
   const info = connectionInfo({
     teamSlug: "team",
-    apiKeyId: "id",
+    apiKeyId: "hcamk_test123",
     apiKeySecret: "secret",
     region: "eu",
   });
@@ -97,11 +102,102 @@ Deno.test("connectionInfo uses EU base for eu region", () => {
 Deno.test("connectionInfo uses US base for us region", () => {
   const info = connectionInfo({
     teamSlug: "team",
-    apiKeyId: "id",
+    apiKeyId: "hcamk_test123",
     apiKeySecret: "secret",
     region: "us",
   });
   assertEquals(info.base, "https://api.honeycomb.io");
+});
+
+// --- validateV2KeyId ---
+
+Deno.test("validateV2KeyId accepts valid management key prefix", () => {
+  validateV2KeyId("hcamk_01abc123");
+});
+
+Deno.test("validateV2KeyId rejects config key prefix", () => {
+  let threw = false;
+  try {
+    validateV2KeyId("hcalk_01abc123");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message.includes("does not look like a v2 Management Key"),
+      true,
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("validateV2KeyId rejects arbitrary string", () => {
+  let threw = false;
+  try {
+    validateV2KeyId("some-random-key");
+  } catch (e) {
+    threw = true;
+    assertEquals((e as Error).message.includes("hcamk_"), true);
+  }
+  assertEquals(threw, true);
+});
+
+// --- validateV1ConfigKey ---
+
+Deno.test("validateV1ConfigKey accepts valid config key", () => {
+  // 54 chars with hcalk_ prefix
+  validateV1ConfigKey(
+    "hcalk_01test000000000000000000000000000000000000000000",
+  );
+});
+
+Deno.test("validateV1ConfigKey rejects management key prefix", () => {
+  let threw = false;
+  try {
+    validateV1ConfigKey(
+      "hcamk_01test000000000000000000000000000000000000000000",
+    );
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message.includes(
+        "does not look like a v1 Configuration Key",
+      ),
+      true,
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("validateV1ConfigKey rejects wrong length", () => {
+  let threw = false;
+  try {
+    validateV1ConfigKey("hcalk_tooshort");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message.includes("characters"),
+      true,
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("connectionInfo rejects non-management key", () => {
+  let threw = false;
+  try {
+    connectionInfo({
+      teamSlug: "team",
+      apiKeyId: "hcalk_configkey",
+      apiKeySecret: "secret",
+      region: "us",
+    });
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message.includes("does not look like a v2 Management Key"),
+      true,
+    );
+  }
+  assertEquals(threw, true);
 });
 
 // --- mapApiItem ---
@@ -270,7 +366,7 @@ Deno.test("buildSummaryTable handles boolean values", () => {
 
 const globalArgs = {
   teamSlug: "my-team",
-  apiKeyId: "key-id",
+  apiKeyId: "hcamk_testkey123",
   apiKeySecret: "key-secret",
   region: "us",
 };
@@ -708,7 +804,10 @@ Deno.test("get sends correct auth headers", async () => {
     await model.methods.get.execute({ resource: "environments" }, context);
 
     const headers = stub.calls[0].init?.headers as Record<string, string>;
-    assertEquals(headers.Authorization, "Bearer key-id:key-secret");
+    assertEquals(
+      headers.Authorization,
+      "Bearer hcamk_testkey123:key-secret",
+    );
     assertEquals(headers.Accept, "application/vnd.api+json");
   } finally {
     stub.restore();
@@ -824,6 +923,11 @@ Deno.test("mapV1Item sets type from resource", () => {
   assertEquals(result.data.type, "datasets");
 });
 
+Deno.test("mapV1Item does not include id in data", () => {
+  const result = mapV1Item({ slug: "my-ds" }, "datasets", 0);
+  assertEquals("id" in result.data, false);
+});
+
 Deno.test("mapV1Item stores full item as attributes", () => {
   const item = { slug: "x", name: "X", extra: 42 };
   const result = mapV1Item(item, "datasets", 0);
@@ -834,9 +938,13 @@ Deno.test("mapV1Item stores full item as attributes", () => {
 // v1 get method tests
 // =====================================================================
 
+// 54-char key with hcalk_ prefix to pass validation
+const TEST_V1_CONFIG_KEY =
+  "hcalk_01test000000000000000000000000000000000000000000";
+
 const v1GlobalArgs = {
   ...globalArgs,
-  configKey: "my-config-key",
+  configKey: TEST_V1_CONFIG_KEY,
 };
 
 function mockV1Context() {
@@ -875,11 +983,11 @@ Deno.test("get with datasets uses v1 auth and writes resources", async () => {
     assertEquals(written.length, 2);
     assertEquals(written[0].instance, "backend");
     assertEquals(written[1].instance, "frontend");
-    assertEquals(written[0].spec, "resource");
+    assertEquals(written[0].spec, "v1resource");
 
     // Verify v1 auth headers
     const headers = stub.calls[0].init?.headers as Record<string, string>;
-    assertEquals(headers["X-Honeycomb-Team"], "my-config-key");
+    assertEquals(headers["X-Honeycomb-Team"], TEST_V1_CONFIG_KEY);
     assertEquals(headers["Content-Type"], "application/json");
 
     // Verify v1 URL
@@ -992,4 +1100,22 @@ Deno.test("get with datasets throws on API error", async () => {
   } finally {
     stub.restore();
   }
+});
+
+Deno.test("get with v1 resource throws when configKey has wrong prefix", async () => {
+  const badKeyContext = {
+    globalArgs: { ...globalArgs, configKey: "hcamk_wrongprefix" },
+    writeResource: () => Promise.resolve("handle"),
+    logger: { info: () => {} },
+  };
+
+  await assertRejects(
+    () =>
+      model.methods.get.execute(
+        { resource: "datasets" },
+        badKeyContext,
+      ),
+    Error,
+    "does not look like a v1 Configuration Key",
+  );
 });

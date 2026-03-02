@@ -1,3 +1,44 @@
+// --- Key validation ---
+
+const V2_KEY_PREFIX = "hcamk_";
+const V1_CONFIG_KEY_PREFIX = "hcalk_";
+const V1_CONFIG_KEY_LENGTH = 54;
+
+function redactKey(key: string): string {
+  return key.length > 10 ? key.slice(0, 10) + "..." : key;
+}
+
+export function validateV2KeyId(apiKeyId: string): void {
+  if (!apiKeyId.startsWith(V2_KEY_PREFIX)) {
+    throw new Error(
+      `apiKeyId "${
+        redactKey(apiKeyId)
+      }" does not look like a v2 Management Key ` +
+        `(expected prefix "${V2_KEY_PREFIX}"). ` +
+        `Configuration keys ("hcalk_") belong in configKey, not apiKeyId.`,
+    );
+  }
+}
+
+export function validateV1ConfigKey(configKey: string): void {
+  if (!configKey.startsWith(V1_CONFIG_KEY_PREFIX)) {
+    throw new Error(
+      `configKey "${
+        redactKey(configKey)
+      }" does not look like a v1 Configuration Key ` +
+        `(expected prefix "${V1_CONFIG_KEY_PREFIX}"). ` +
+        `Management keys ("hcamk_") belong in apiKeyId, not configKey.`,
+    );
+  }
+  if (configKey.length !== V1_CONFIG_KEY_LENGTH) {
+    throw new Error(
+      `configKey has ${configKey.length} characters but v1 Configuration Keys ` +
+        `are expected to be ${V1_CONFIG_KEY_LENGTH} characters long. ` +
+        `Check that the full key value is set, not just the key ID.`,
+    );
+  }
+}
+
 export function baseUrl(region: string): string {
   return region === "eu"
     ? "https://api.eu1.honeycomb.io"
@@ -34,6 +75,7 @@ export function connectionInfo(globalArgs: {
   const teamSlug = String(globalArgs.teamSlug).trim();
   const apiKeyId = String(globalArgs.apiKeyId).trim();
   const apiKeySecret = String(globalArgs.apiKeySecret).trim();
+  validateV2KeyId(apiKeyId);
   const region = globalArgs.region;
   const base = baseUrl(region);
   const headers = authHeaders(apiKeyId, apiKeySecret);

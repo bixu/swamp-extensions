@@ -10,6 +10,7 @@ import {
   resolveV1Request,
   resourceUrl,
   V1_RESOURCE_REGISTRY,
+  validateV1ConfigKey,
 } from "./honeycomb_helpers.ts";
 
 const GlobalArgsSchema = z.object({
@@ -31,6 +32,11 @@ const ResourceSchema = z.object({
   attributes: z.any(),
 });
 
+const V1ResourceSchema = z.object({
+  type: z.string(),
+  attributes: z.any(),
+});
+
 const ResourceArg = z.object({
   resource: z.string().describe(
     "Honeycomb resource type (e.g. environments, datasets)",
@@ -45,12 +51,18 @@ const ResourceArg = z.object({
 
 export const model = {
   type: "@bixu/honeycomb",
-  version: "2026.03.02.6",
+  version: "2026.03.02.8",
   globalArguments: GlobalArgsSchema,
   resources: {
     resource: {
-      description: "Honeycomb API resource",
+      description: "Honeycomb v2 API resource",
       schema: ResourceSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 10,
+    },
+    v1resource: {
+      description: "Honeycomb v1 API resource",
+      schema: V1ResourceSchema,
       lifetime: "infinite" as const,
       garbageCollection: 10,
     },
@@ -70,13 +82,16 @@ export const model = {
             );
           }
 
+          const trimmedKey = String(configKey).trim();
+          validateV1ConfigKey(trimmedKey);
+
           const base = baseUrl(context.globalArgs.region);
           const url = resolveV1Request(
             base,
             args.resource,
             args.dataset,
           );
-          const headers = authHeadersV1(String(configKey).trim());
+          const headers = authHeadersV1(trimmedKey);
 
           const resp = await fetch(url, { headers });
           if (!resp.ok) {
@@ -104,7 +119,7 @@ export const model = {
             allItems.push(item);
             const mapped = mapV1Item(item, args.resource, i);
             const handle = await context.writeResource(
-              "resource",
+              "v1resource",
               mapped.instanceName,
               mapped.data,
             );
