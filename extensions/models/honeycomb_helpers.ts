@@ -201,10 +201,19 @@ export const V1_RESOURCE_REGISTRY: Record<
 > = {
   "datasets": { datasetScoped: false, slugFilterable: true },
   "dataset-definitions": { datasetScoped: true },
+  "columns": { datasetScoped: true },
+  "derived-columns": { datasetScoped: true },
+  "triggers": { datasetScoped: true },
+  "burn-alerts": { datasetScoped: true },
+  "slos": { datasetScoped: true },
+  "boards": { datasetScoped: false },
+  "recipients": { datasetScoped: false },
 };
 
 const V1_API_PATH_MAP: Record<string, string> = {
   "dataset-definitions": "dataset_definitions",
+  "derived-columns": "derived_columns",
+  "burn-alerts": "burn_alerts",
 };
 
 export function resolveV1Request(

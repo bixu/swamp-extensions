@@ -911,6 +911,131 @@ Deno.test("resolveV1Request throws when dataset missing for dataset-scoped resou
   assertEquals(threw, true);
 });
 
+Deno.test("resolveV1Request resolves columns with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "columns",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/columns/my-ds");
+});
+
+Deno.test("resolveV1Request throws when dataset missing for columns", () => {
+  let threw = false;
+  try {
+    resolveV1Request("https://api.honeycomb.io", "columns");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message,
+      'Resource "columns" requires a dataset argument',
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("resolveV1Request resolves derived-columns with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "derived-columns",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/derived_columns/my-ds");
+});
+
+Deno.test("resolveV1Request throws when dataset missing for derived-columns", () => {
+  let threw = false;
+  try {
+    resolveV1Request("https://api.honeycomb.io", "derived-columns");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message,
+      'Resource "derived-columns" requires a dataset argument',
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("resolveV1Request resolves triggers with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "triggers",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/triggers/my-ds");
+});
+
+Deno.test("resolveV1Request throws when dataset missing for triggers", () => {
+  let threw = false;
+  try {
+    resolveV1Request("https://api.honeycomb.io", "triggers");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message,
+      'Resource "triggers" requires a dataset argument',
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("resolveV1Request resolves burn-alerts with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "burn-alerts",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/burn_alerts/my-ds");
+});
+
+Deno.test("resolveV1Request throws when dataset missing for burn-alerts", () => {
+  let threw = false;
+  try {
+    resolveV1Request("https://api.honeycomb.io", "burn-alerts");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message,
+      'Resource "burn-alerts" requires a dataset argument',
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("resolveV1Request resolves slos with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "slos",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/slos/my-ds");
+});
+
+Deno.test("resolveV1Request throws when dataset missing for slos", () => {
+  let threw = false;
+  try {
+    resolveV1Request("https://api.honeycomb.io", "slos");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message,
+      'Resource "slos" requires a dataset argument',
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("resolveV1Request resolves boards URL", () => {
+  const url = resolveV1Request("https://api.honeycomb.io", "boards");
+  assertEquals(url, "https://api.honeycomb.io/1/boards");
+});
+
+Deno.test("resolveV1Request resolves recipients URL", () => {
+  const url = resolveV1Request("https://api.honeycomb.io", "recipients");
+  assertEquals(url, "https://api.honeycomb.io/1/recipients");
+});
+
 // --- mapV1Item ---
 
 Deno.test("mapV1Item uses slug as instanceName when available", () => {
