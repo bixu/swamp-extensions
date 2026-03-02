@@ -1,40 +1,45 @@
 // --- Key validation ---
+// Honeycomb key prefixes: hc{region}{type}_ where type is:
+//   mk = management key, lk = configuration key, ik = ingest key
+// Region varies (e.g. "a" for US, "e" for EU), so we match the type
+// suffix only via regex: /^hc.mk_/ for management, /^hc.lk_/ for config.
+// See: https://docs.honeycomb.io/get-started/best-practices/api-keys/
 
-const V2_KEY_PREFIX = "hcamk_";
-const V1_CONFIG_KEY_PREFIX = "hcalk_";
-const V1_CONFIG_KEY_LENGTH = 54;
+const V2_KEY_PATTERN = /^hc.mk_/;
+const V1_CONFIG_KEY_PATTERN = /^hc.lk_/;
+const HONEYCOMB_KEY_ID_LENGTH = 32;
 
 function redactKey(key: string): string {
   return key.length > 10 ? key.slice(0, 10) + "..." : key;
 }
 
 export function validateV2KeyId(apiKeyId: string): void {
-  if (!apiKeyId.startsWith(V2_KEY_PREFIX)) {
+  if (!V2_KEY_PATTERN.test(apiKeyId)) {
     throw new Error(
       `apiKeyId "${
         redactKey(apiKeyId)
       }" does not look like a v2 Management Key ` +
-        `(expected prefix "${V2_KEY_PREFIX}"). ` +
-        `Configuration keys ("hcalk_") belong in configKey, not apiKeyId.`,
+        `(expected prefix matching "hc{region}mk_"). ` +
+        `Configuration keys ("hc_lk_") belong in configKey, not apiKeyId.`,
     );
   }
 }
 
 export function validateV1ConfigKey(configKey: string): void {
-  if (!configKey.startsWith(V1_CONFIG_KEY_PREFIX)) {
+  if (!V1_CONFIG_KEY_PATTERN.test(configKey)) {
     throw new Error(
       `configKey "${
         redactKey(configKey)
       }" does not look like a v1 Configuration Key ` +
-        `(expected prefix "${V1_CONFIG_KEY_PREFIX}"). ` +
-        `Management keys ("hcamk_") belong in apiKeyId, not configKey.`,
+        `(expected prefix matching "hc{region}lk_"). ` +
+        `Management keys ("hc_mk_") belong in apiKeyId, not configKey.`,
     );
   }
-  if (configKey.length !== V1_CONFIG_KEY_LENGTH) {
+  if (configKey.length <= HONEYCOMB_KEY_ID_LENGTH) {
     throw new Error(
-      `configKey has ${configKey.length} characters but v1 Configuration Keys ` +
-        `are expected to be ${V1_CONFIG_KEY_LENGTH} characters long. ` +
-        `Check that the full key value is set, not just the key ID.`,
+      `configKey has ${configKey.length} characters, which looks like just the ` +
+        `key ID. The full key (ID + secret concatenated) is required. ` +
+        `If you've lost the secret, create a new Configuration Key in Honeycomb.`,
     );
   }
 }

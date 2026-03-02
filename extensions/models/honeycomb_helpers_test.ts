@@ -111,8 +111,12 @@ Deno.test("connectionInfo uses US base for us region", () => {
 
 // --- validateV2KeyId ---
 
-Deno.test("validateV2KeyId accepts valid management key prefix", () => {
+Deno.test("validateV2KeyId accepts US management key prefix", () => {
   validateV2KeyId("hcamk_01abc123");
+});
+
+Deno.test("validateV2KeyId accepts EU management key prefix", () => {
+  validateV2KeyId("hcemk_01abc123");
 });
 
 Deno.test("validateV2KeyId rejects config key prefix", () => {
@@ -135,17 +139,25 @@ Deno.test("validateV2KeyId rejects arbitrary string", () => {
     validateV2KeyId("some-random-key");
   } catch (e) {
     threw = true;
-    assertEquals((e as Error).message.includes("hcamk_"), true);
+    assertEquals(
+      (e as Error).message.includes("does not look like a v2 Management Key"),
+      true,
+    );
   }
   assertEquals(threw, true);
 });
 
 // --- validateV1ConfigKey ---
 
-Deno.test("validateV1ConfigKey accepts valid config key", () => {
-  // 54 chars with hcalk_ prefix
+Deno.test("validateV1ConfigKey accepts valid US config key", () => {
   validateV1ConfigKey(
-    "hcalk_01test000000000000000000000000000000000000000000",
+    "hcalk_01test00000000000000000000secret0000000000000000000000000",
+  );
+});
+
+Deno.test("validateV1ConfigKey accepts valid EU config key", () => {
+  validateV1ConfigKey(
+    "hcelk_01test00000000000000000000secret0000000000000000000000000",
   );
 });
 
@@ -153,7 +165,7 @@ Deno.test("validateV1ConfigKey rejects management key prefix", () => {
   let threw = false;
   try {
     validateV1ConfigKey(
-      "hcamk_01test000000000000000000000000000000000000000000",
+      "hcamk_01test00000000000000000000secret0000000000000000000000000",
     );
   } catch (e) {
     threw = true;
@@ -167,14 +179,15 @@ Deno.test("validateV1ConfigKey rejects management key prefix", () => {
   assertEquals(threw, true);
 });
 
-Deno.test("validateV1ConfigKey rejects wrong length", () => {
+Deno.test("validateV1ConfigKey rejects key ID without secret", () => {
   let threw = false;
   try {
-    validateV1ConfigKey("hcalk_tooshort");
+    // 32 chars = just the key ID, no secret appended
+    validateV1ConfigKey("hcalk_01test0000000000000000000");
   } catch (e) {
     threw = true;
     assertEquals(
-      (e as Error).message.includes("characters"),
+      (e as Error).message.includes("looks like just the key ID"),
       true,
     );
   }
@@ -938,9 +951,9 @@ Deno.test("mapV1Item stores full item as attributes", () => {
 // v1 get method tests
 // =====================================================================
 
-// 54-char key with hcalk_ prefix to pass validation
+// Full config key: ID (32 chars) + secret (>0 chars) to pass validation
 const TEST_V1_CONFIG_KEY =
-  "hcalk_01test000000000000000000000000000000000000000000";
+  "hcalk_01test00000000000000000000secret0000000000000000000000000";
 
 const v1GlobalArgs = {
   ...globalArgs,
