@@ -9,4 +9,5 @@ globalArguments:
   apiKeyId: ${{ env.HONEYCOMB_API_KEY_ID }}
   apiKeySecret: ${{ env.HONEYCOMB_API_KEY_SECRET }}
   region: us
+  configKey: ${{ env.HONEYCOMB_CONFIG_KEY }}
 methods: {}

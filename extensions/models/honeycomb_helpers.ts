@@ -130,6 +130,81 @@ export function buildSummaryTable(
   return lines;
 }
 
+// --- v1 API support ---
+
+export function authHeadersV1(
+  configKey: string,
+): Record<string, string> {
+  return {
+    "X-Honeycomb-Team": configKey,
+    "Content-Type": "application/json",
+  };
+}
+
+export function resourceUrlV1(
+  base: string,
+  resource: string,
+  datasetSlug?: string,
+): string {
+  if (datasetSlug) {
+    return `${base}/1/${encodeURIComponent(resource)}/${
+      encodeURIComponent(datasetSlug)
+    }`;
+  }
+  return `${base}/1/${encodeURIComponent(resource)}`;
+}
+
+export const V1_RESOURCE_REGISTRY: Record<
+  string,
+  { datasetScoped: boolean }
+> = {
+  "datasets": { datasetScoped: false },
+  "dataset-definitions": { datasetScoped: true },
+};
+
+const V1_API_PATH_MAP: Record<string, string> = {
+  "dataset-definitions": "dataset_definitions",
+};
+
+export function resolveV1Request(
+  base: string,
+  resource: string,
+  dataset?: string,
+): string {
+  const entry = V1_RESOURCE_REGISTRY[resource];
+  if (!entry) {
+    throw new Error(`Unknown v1 resource: ${resource}`);
+  }
+  if (entry.datasetScoped && !dataset) {
+    throw new Error(
+      `Resource "${resource}" requires a dataset argument`,
+    );
+  }
+  const apiPath = V1_API_PATH_MAP[resource] ?? resource;
+  return resourceUrlV1(
+    base,
+    apiPath,
+    entry.datasetScoped ? dataset : undefined,
+  );
+}
+
+export function mapV1Item(
+  item: Record<string, unknown>,
+  resource: string,
+  index: number,
+): { instanceName: string; data: Record<string, unknown> } {
+  const instanceName = (item.slug as string) ??
+    (item.name as string) ??
+    `${resource}-${index}`;
+  return {
+    instanceName,
+    data: {
+      type: resource,
+      attributes: item,
+    },
+  };
+}
+
 export function findByNameOrSlug(
   items: Array<{
     id: string;
