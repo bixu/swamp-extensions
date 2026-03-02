@@ -159,5 +159,46 @@ export function splitIntoBlocks(
     });
   }
 
-  return blocks;
+  // Final pass: hard-split any block that still exceeds the limit.
+  // This handles plain text with no section boundaries or code blocks.
+  const result: Record<string, unknown>[] = [];
+  for (const block of blocks) {
+    const content = (block as { text: { text: string } }).text.text;
+    if (content.length <= limit) {
+      result.push(block);
+      continue;
+    }
+    // Split at line boundaries
+    const lines = content.split("\n");
+    let buf = "";
+    for (const line of lines) {
+      const candidate = buf ? buf + "\n" + line : line;
+      if (candidate.length > limit && buf) {
+        result.push({
+          type: "section",
+          text: { type: "mrkdwn", text: buf.trimEnd() },
+        });
+        buf = line;
+      } else {
+        buf = candidate;
+      }
+    }
+    // If a single line (or accumulated remainder) still exceeds the limit,
+    // hard-split at the character boundary as a last resort.
+    while (buf.length > limit) {
+      result.push({
+        type: "section",
+        text: { type: "mrkdwn", text: buf.slice(0, limit) },
+      });
+      buf = buf.slice(limit);
+    }
+    if (buf.trim()) {
+      result.push({
+        type: "section",
+        text: { type: "mrkdwn", text: buf.trimEnd() },
+      });
+    }
+  }
+
+  return result;
 }
