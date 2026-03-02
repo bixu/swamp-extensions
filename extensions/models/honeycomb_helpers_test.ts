@@ -942,6 +942,14 @@ Deno.test("resolveV1Request resolves boards without dataset", () => {
   assertEquals(url, "https://api.honeycomb.io/1/boards");
 });
 
+Deno.test("resolveV1Request resolves recipients without dataset", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "recipients",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/recipients");
+});
+
 // --- mapV1Item ---
 
 Deno.test("mapV1Item uses slug as instanceName when available", () => {
