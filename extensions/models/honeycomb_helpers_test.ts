@@ -4,12 +4,18 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   authHeaders,
+  authHeadersV1,
   baseUrl,
   buildSummaryTable,
   connectionInfo,
   findByNameOrSlug,
   mapApiItem,
+  mapV1Item,
+  resolveV1Request,
   resourceUrl,
+  resourceUrlV1,
+  validateV1ConfigKey,
+  validateV2KeyId,
 } from "./honeycomb_helpers.ts";
 import { model } from "./honeycomb.ts";
 
@@ -72,18 +78,21 @@ Deno.test("resourceUrl encodes resource type", () => {
 Deno.test("connectionInfo trims whitespace from credentials", () => {
   const info = connectionInfo({
     teamSlug: "  my-team  ",
-    apiKeyId: "  key-id  ",
+    apiKeyId: "  hcamk_test123  ",
     apiKeySecret: "  key-secret  ",
     region: "us",
   });
   assertEquals(info.teamSlug, "my-team");
-  assertEquals(info.headers.Authorization, "Bearer key-id:key-secret");
+  assertEquals(
+    info.headers.Authorization,
+    "Bearer hcamk_test123:key-secret",
+  );
 });
 
 Deno.test("connectionInfo uses EU base for eu region", () => {
   const info = connectionInfo({
     teamSlug: "team",
-    apiKeyId: "id",
+    apiKeyId: "hcamk_test123",
     apiKeySecret: "secret",
     region: "eu",
   });
@@ -93,11 +102,102 @@ Deno.test("connectionInfo uses EU base for eu region", () => {
 Deno.test("connectionInfo uses US base for us region", () => {
   const info = connectionInfo({
     teamSlug: "team",
-    apiKeyId: "id",
+    apiKeyId: "hcamk_test123",
     apiKeySecret: "secret",
     region: "us",
   });
   assertEquals(info.base, "https://api.honeycomb.io");
+});
+
+// --- validateV2KeyId ---
+
+Deno.test("validateV2KeyId accepts US management key prefix", () => {
+  validateV2KeyId("hcamk_01abc123");
+});
+
+Deno.test("validateV2KeyId accepts EU management key prefix", () => {
+  validateV2KeyId("hcemk_01abc123");
+});
+
+Deno.test("validateV2KeyId rejects config key prefix", () => {
+  let threw = false;
+  try {
+    validateV2KeyId("hcalk_01abc123");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message.includes("does not look like a v2 Management Key"),
+      true,
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("validateV2KeyId rejects arbitrary string", () => {
+  let threw = false;
+  try {
+    validateV2KeyId("some-random-key");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message.includes("does not look like a v2 Management Key"),
+      true,
+    );
+  }
+  assertEquals(threw, true);
+});
+
+// --- validateV1ConfigKey ---
+
+Deno.test("validateV1ConfigKey accepts bare secret string", () => {
+  validateV1ConfigKey("NcGRfh40mzATnUl8KojQoF");
+});
+
+Deno.test("validateV1ConfigKey rejects management key ID", () => {
+  let threw = false;
+  try {
+    validateV1ConfigKey("hcamk_01test00000000000000000000");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message.includes("looks like a v2 Management Key ID"),
+      true,
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("validateV1ConfigKey rejects empty string", () => {
+  let threw = false;
+  try {
+    validateV1ConfigKey("");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message.includes("configKey is empty"),
+      true,
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("connectionInfo rejects non-management key", () => {
+  let threw = false;
+  try {
+    connectionInfo({
+      teamSlug: "team",
+      apiKeyId: "hcalk_configkey",
+      apiKeySecret: "secret",
+      region: "us",
+    });
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message.includes("does not look like a v2 Management Key"),
+      true,
+    );
+  }
+  assertEquals(threw, true);
 });
 
 // --- mapApiItem ---
@@ -266,7 +366,7 @@ Deno.test("buildSummaryTable handles boolean values", () => {
 
 const globalArgs = {
   teamSlug: "my-team",
-  apiKeyId: "key-id",
+  apiKeyId: "hcamk_testkey123",
   apiKeySecret: "key-secret",
   region: "us",
 };
@@ -704,9 +804,367 @@ Deno.test("get sends correct auth headers", async () => {
     await model.methods.get.execute({ resource: "environments" }, context);
 
     const headers = stub.calls[0].init?.headers as Record<string, string>;
-    assertEquals(headers.Authorization, "Bearer key-id:key-secret");
+    assertEquals(
+      headers.Authorization,
+      "Bearer hcamk_testkey123:key-secret",
+    );
     assertEquals(headers.Accept, "application/vnd.api+json");
   } finally {
     stub.restore();
   }
+});
+
+// =====================================================================
+// v1 API helpers
+// =====================================================================
+
+// --- authHeadersV1 ---
+
+Deno.test("authHeadersV1 returns X-Honeycomb-Team header", () => {
+  const headers = authHeadersV1("my-config-key");
+  assertEquals(headers["X-Honeycomb-Team"], "my-config-key");
+});
+
+Deno.test("authHeadersV1 includes content-type header", () => {
+  const headers = authHeadersV1("key");
+  assertEquals(headers["Content-Type"], "application/json");
+});
+
+// --- resourceUrlV1 ---
+
+Deno.test("resourceUrlV1 builds environment-scoped path", () => {
+  assertEquals(
+    resourceUrlV1("https://api.honeycomb.io", "datasets"),
+    "https://api.honeycomb.io/1/datasets",
+  );
+});
+
+Deno.test("resourceUrlV1 builds dataset-scoped path", () => {
+  assertEquals(
+    resourceUrlV1("https://api.honeycomb.io", "dataset_definitions", "my-ds"),
+    "https://api.honeycomb.io/1/dataset_definitions/my-ds",
+  );
+});
+
+Deno.test("resourceUrlV1 encodes resource and dataset", () => {
+  const url = resourceUrlV1(
+    "https://api.honeycomb.io",
+    "some resource",
+    "my dataset",
+  );
+  assertEquals(url.includes("some%20resource"), true);
+  assertEquals(url.includes("my%20dataset"), true);
+});
+
+// --- resolveV1Request ---
+
+Deno.test("resolveV1Request resolves datasets URL", () => {
+  const url = resolveV1Request("https://api.honeycomb.io", "datasets");
+  assertEquals(url, "https://api.honeycomb.io/1/datasets");
+});
+
+Deno.test("resolveV1Request resolves dataset-definitions with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "dataset-definitions",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/dataset_definitions/my-ds");
+});
+
+Deno.test("resolveV1Request throws for unknown resource", () => {
+  let threw = false;
+  try {
+    resolveV1Request("https://api.honeycomb.io", "unknown-thing");
+  } catch (e) {
+    threw = true;
+    assertEquals((e as Error).message, "Unknown v1 resource: unknown-thing");
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("resolveV1Request appends slug for slugFilterable resource", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "datasets",
+    "my-dataset",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/datasets/my-dataset");
+});
+
+Deno.test("resolveV1Request omits slug for datasets when not provided", () => {
+  const url = resolveV1Request("https://api.honeycomb.io", "datasets");
+  assertEquals(url, "https://api.honeycomb.io/1/datasets");
+});
+
+Deno.test("resolveV1Request throws when dataset missing for dataset-scoped resource", () => {
+  let threw = false;
+  try {
+    resolveV1Request("https://api.honeycomb.io", "dataset-definitions");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message,
+      'Resource "dataset-definitions" requires a dataset argument',
+    );
+  }
+  assertEquals(threw, true);
+});
+
+// --- mapV1Item ---
+
+Deno.test("mapV1Item uses slug as instanceName when available", () => {
+  const result = mapV1Item(
+    { slug: "my-ds", name: "My Dataset" },
+    "datasets",
+    0,
+  );
+  assertEquals(result.instanceName, "my-ds");
+});
+
+Deno.test("mapV1Item falls back to name when no slug", () => {
+  const result = mapV1Item({ name: "My Dataset" }, "datasets", 0);
+  assertEquals(result.instanceName, "My Dataset");
+});
+
+Deno.test("mapV1Item falls back to resource-index when no slug or name", () => {
+  const result = mapV1Item({ foo: "bar" }, "datasets", 3);
+  assertEquals(result.instanceName, "datasets-3");
+});
+
+Deno.test("mapV1Item sets type from resource", () => {
+  const result = mapV1Item({ slug: "x" }, "datasets", 0);
+  assertEquals(result.data.type, "datasets");
+});
+
+Deno.test("mapV1Item does not include id in data", () => {
+  const result = mapV1Item({ slug: "my-ds" }, "datasets", 0);
+  assertEquals("id" in result.data, false);
+});
+
+Deno.test("mapV1Item stores full item as attributes", () => {
+  const item = { slug: "x", name: "X", extra: 42 };
+  const result = mapV1Item(item, "datasets", 0);
+  assertEquals(result.data.attributes, item);
+});
+
+// =====================================================================
+// v1 get method tests
+// =====================================================================
+
+// v1 config keys are bare secrets (no prefix)
+const TEST_V1_CONFIG_KEY = "test-config-key-secret-value";
+
+const v1GlobalArgs = {
+  ...globalArgs,
+  configKey: TEST_V1_CONFIG_KEY,
+};
+
+function mockV1Context() {
+  const written: Array<{ spec: string; instance: string; data: unknown }> = [];
+  let handleCounter = 0;
+  return {
+    written,
+    context: {
+      globalArgs: v1GlobalArgs,
+      writeResource: (spec: string, instance: string, data: unknown) => {
+        written.push({ spec, instance, data });
+        return Promise.resolve(`handle-${++handleCounter}`);
+      },
+      logger: { info: () => {} },
+    },
+  };
+}
+
+Deno.test("get with datasets uses v1 auth and writes resources", async () => {
+  const { context, written } = mockV1Context();
+  const stub = stubFetch([{
+    ok: true,
+    body: [
+      { slug: "backend", name: "Backend", created_at: "2026-01-01" },
+      { slug: "frontend", name: "Frontend", created_at: "2026-01-02" },
+    ],
+  }]);
+
+  try {
+    const result = await model.methods.get.execute(
+      { resource: "datasets" },
+      context,
+    );
+
+    assertEquals(result.dataHandles.length, 2);
+    assertEquals(written.length, 2);
+    assertEquals(written[0].instance, "backend");
+    assertEquals(written[1].instance, "frontend");
+    assertEquals(written[0].spec, "v1resource");
+
+    // Verify v1 auth headers
+    const headers = stub.calls[0].init?.headers as Record<string, string>;
+    assertEquals(headers["X-Honeycomb-Team"], TEST_V1_CONFIG_KEY);
+    assertEquals(headers["Content-Type"], "application/json");
+
+    // Verify v1 URL
+    assertEquals(
+      stub.calls[0].url,
+      "https://api.honeycomb.io/1/datasets",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("get with dataset-definitions normalizes object response", async () => {
+  const { context, written } = mockV1Context();
+  const stub = stubFetch([{
+    ok: true,
+    body: {
+      "duration_ms": { name: "duration_ms", type: "float" },
+      "status_code": { name: "status_code", type: "integer" },
+    },
+  }]);
+
+  try {
+    const result = await model.methods.get.execute(
+      { resource: "dataset-definitions", dataset: "backend" },
+      context,
+    );
+
+    assertEquals(result.dataHandles.length, 2);
+    assertEquals(written.length, 2);
+    assertEquals(written[0].instance, "duration_ms");
+    assertEquals(written[1].instance, "status_code");
+
+    // Verify dataset-scoped URL
+    assertEquals(
+      stub.calls[0].url,
+      "https://api.honeycomb.io/1/dataset_definitions/backend",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("get with dataset-definitions throws when dataset missing", async () => {
+  const { context } = mockV1Context();
+
+  await assertRejects(
+    () =>
+      model.methods.get.execute(
+        { resource: "dataset-definitions" },
+        context,
+      ),
+    Error,
+    "requires a dataset argument",
+  );
+});
+
+Deno.test("get with v1 resource throws when configKey missing", async () => {
+  const { context } = mockContext(); // no configKey
+
+  await assertRejects(
+    () =>
+      model.methods.get.execute(
+        { resource: "datasets" },
+        context,
+      ),
+    Error,
+    "requires configKey",
+  );
+});
+
+Deno.test("get with datasets handles empty array", async () => {
+  const { context, written } = mockV1Context();
+  const stub = stubFetch([{
+    ok: true,
+    body: [],
+  }]);
+
+  try {
+    const result = await model.methods.get.execute(
+      { resource: "datasets" },
+      context,
+    );
+
+    assertEquals(result.dataHandles.length, 0);
+    assertEquals(written.length, 0);
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("get with datasets throws on API error", async () => {
+  const { context } = mockV1Context();
+  const stub = stubFetch([{
+    ok: false,
+    status: 401,
+    body: "Unauthorized",
+  }]);
+
+  try {
+    await assertRejects(
+      () =>
+        model.methods.get.execute(
+          { resource: "datasets" },
+          context,
+        ),
+      Error,
+      "Honeycomb API error 401",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("get with datasets and dataset slug fetches single dataset", async () => {
+  const { context, written } = mockV1Context();
+  const stub = stubFetch([{
+    ok: true,
+    body: {
+      slug: "backend",
+      name: "Backend",
+      created_at: "2026-01-01",
+      last_written_at: "2026-03-01",
+    },
+  }]);
+
+  try {
+    const result = await model.methods.get.execute(
+      { resource: "datasets", dataset: "backend" },
+      context,
+    );
+
+    assertEquals(result.dataHandles.length, 1);
+    assertEquals(written.length, 1);
+    assertEquals(written[0].instance, "backend");
+    assertEquals(written[0].spec, "v1resource");
+
+    // Verify slug-filtered URL
+    assertEquals(
+      stub.calls[0].url,
+      "https://api.honeycomb.io/1/datasets/backend",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("get with v1 resource throws when configKey is a management key ID", async () => {
+  const badKeyContext = {
+    globalArgs: {
+      ...globalArgs,
+      configKey: "hcamk_01test00000000000000000000",
+    },
+    writeResource: () => Promise.resolve("handle"),
+    logger: { info: () => {} },
+  };
+
+  await assertRejects(
+    () =>
+      model.methods.get.execute(
+        { resource: "datasets" },
+        badKeyContext,
+      ),
+    Error,
+    "looks like a v2 Management Key ID",
+  );
 });
