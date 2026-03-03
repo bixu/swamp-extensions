@@ -1,0 +1,14 @@
+type: '@adam/cfgmgmt/node'
+typeVersion: 2026.03.02.1
+id: dd0b1281-72bb-4665-8315-ae3c91018aa9
+name: hivemq-harvester007
+version: 1
+tags: {}
+globalArguments:
+  hostname: '10.153.1.17'
+  sshUser: rancher
+  sshPort: 22
+  sshIdentityFile: ~/.ssh/harvester-general-vms-ssh
+methods:
+  gather:
+    arguments: {}
