@@ -53,8 +53,10 @@ export async function getConnection(opts: ConnectOpts): Promise<SshConn> {
   try {
     const check = new Deno.Command("ssh", {
       args: [
-        "-o", `ControlPath=${socketPath}`,
-        "-O", "check",
+        "-o",
+        `ControlPath=${socketPath}`,
+        "-O",
+        "check",
         `${opts.username}@${opts.host}`,
       ],
       stdout: "null",
@@ -68,12 +70,19 @@ export async function getConnection(opts: ConnectOpts): Promise<SshConn> {
 
   if (needMaster) {
     const args = [
-      "-M", "-N", "-f",
-      "-o", `ControlPath=${socketPath}`,
-      "-o", "ControlPersist=300",
-      "-p", String(port),
-      "-o", "StrictHostKeyChecking=no",
-      "-o", "BatchMode=yes",
+      "-M",
+      "-N",
+      "-f",
+      "-o",
+      `ControlPath=${socketPath}`,
+      "-o",
+      "ControlPersist=300",
+      "-p",
+      String(port),
+      "-o",
+      "StrictHostKeyChecking=no",
+      "-o",
+      "BatchMode=yes",
     ];
     if (opts.privateKeyPath) args.push("-i", opts.privateKeyPath);
     args.push(`${opts.username}@${opts.host}`);
@@ -105,10 +114,14 @@ export async function exec(
   command: string,
 ): Promise<ExecResult> {
   const args = [
-    "-o", `ControlPath=${conn.socketPath}`,
-    "-p", String(conn.port),
-    "-o", "StrictHostKeyChecking=no",
-    "-o", "BatchMode=yes",
+    "-o",
+    `ControlPath=${conn.socketPath}`,
+    "-p",
+    String(conn.port),
+    "-o",
+    "StrictHostKeyChecking=no",
+    "-o",
+    "BatchMode=yes",
   ];
   if (conn.identityFile) args.push("-i", conn.identityFile);
   args.push(`${conn.username}@${conn.host}`, command);
@@ -135,10 +148,14 @@ export async function writeFile(
   try {
     await Deno.writeTextFile(tmpFile, content);
     const args = [
-      "-o", `ControlPath=${conn.socketPath}`,
-      "-P", String(conn.port),
-      "-o", "StrictHostKeyChecking=no",
-      "-o", "BatchMode=yes",
+      "-o",
+      `ControlPath=${conn.socketPath}`,
+      "-P",
+      String(conn.port),
+      "-o",
+      "StrictHostKeyChecking=no",
+      "-o",
+      "BatchMode=yes",
     ];
     if (conn.identityFile) args.push("-i", conn.identityFile);
     args.push(tmpFile, `${conn.username}@${conn.host}:${remotePath}`);
@@ -190,7 +207,10 @@ export async function writeFileAs(
   }
   const tmpName = `/tmp/.swamp-upload-${crypto.randomUUID()}`;
   await writeFile(conn, tmpName, content);
-  const mv = wrapSudo(`mv ${shellEscape(tmpName)} ${shellEscape(remotePath)}`, opts);
+  const mv = wrapSudo(
+    `mv ${shellEscape(tmpName)} ${shellEscape(remotePath)}`,
+    opts,
+  );
   const result = await exec(conn, mv);
   if (result.exitCode !== 0) {
     await exec(conn, `rm -f ${shellEscape(tmpName)}`);
@@ -203,8 +223,10 @@ export function closeAll(): void {
     try {
       new Deno.Command("ssh", {
         args: [
-          "-o", `ControlPath=${conn.socketPath}`,
-          "-O", "exit",
+          "-o",
+          `ControlPath=${conn.socketPath}`,
+          "-O",
+          "exit",
           `${conn.username}@${conn.host}`,
         ],
         stdout: "null",
