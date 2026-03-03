@@ -1,9 +1,11 @@
 import { z } from "npm:zod@4";
-import { getConnection, exec, wrapSudo } from "./_lib/ssh.ts";
+import { exec, getConnection, wrapSudo } from "./_lib/ssh.ts";
 
 const GlobalArgsSchema = z.object({
   path: z.string().describe("Path where the symlink should exist"),
-  ensure: z.enum(["present", "absent"]).describe("Whether symlink should be present or absent"),
+  ensure: z.enum(["present", "absent"]).describe(
+    "Whether symlink should be present or absent",
+  ),
   target: z.string().optional().describe("Target the symlink should point to"),
   owner: z.string().optional().describe("Symlink owner"),
   group: z.string().optional().describe("Symlink group"),
@@ -11,19 +13,29 @@ const GlobalArgsSchema = z.object({
   nodeUser: z.string().default("root").describe("SSH username"),
   nodePort: z.number().default(22).describe("SSH port"),
   nodeIdentityFile: z.string().optional().describe("Path to SSH private key"),
-  become: z.boolean().default(false).describe("Enable sudo privilege escalation"),
+  become: z.boolean().default(false).describe(
+    "Enable sudo privilege escalation",
+  ),
   becomeUser: z.string().default("root").describe("User to become via sudo"),
-  becomePassword: z.string().optional().meta({ sensitive: true }).describe("Password for sudo -S"),
+  becomePassword: z.string().optional().meta({ sensitive: true }).describe(
+    "Password for sudo -S",
+  ),
 });
 
 function sudoOpts(g) {
-  return { become: g.become, becomeUser: g.becomeUser, becomePassword: g.becomePassword };
+  return {
+    become: g.become,
+    becomeUser: g.becomeUser,
+    becomePassword: g.becomePassword,
+  };
 }
 
 const StateSchema = z.object({
   path: z.string().describe("Symlink path"),
   ensure: z.string().describe("Desired state (present or absent)"),
-  status: z.enum(["compliant", "non_compliant", "applied", "failed"]).describe("Compliance status"),
+  status: z.enum(["compliant", "non_compliant", "applied", "failed"]).describe(
+    "Compliance status",
+  ),
   current: z.object({
     exists: z.boolean().describe("Whether something exists at the path"),
     isLink: z.boolean().describe("Whether the path is a symbolic link"),
@@ -36,7 +48,7 @@ const StateSchema = z.object({
   timestamp: z.string().describe("ISO 8601 timestamp"),
 });
 
-async function connect(g) {
+function connect(g) {
   return getConnection({
     host: g.nodeHost,
     port: g.nodePort,
@@ -47,23 +59,50 @@ async function connect(g) {
 
 async function gather(client, path, g) {
   const so = sudoOpts(g);
-  const testResult = await exec(client, wrapSudo(`test -L ${JSON.stringify(path)} && echo ISLINK || echo NOTLINK`, so));
+  const testResult = await exec(
+    client,
+    wrapSudo(
+      `test -L ${JSON.stringify(path)} && echo ISLINK || echo NOTLINK`,
+      so,
+    ),
+  );
   const isLink = testResult.stdout.trim() === "ISLINK";
 
   if (!isLink) {
-    const existsResult = await exec(client, wrapSudo(`test -e ${JSON.stringify(path)} && echo EXISTS || echo NOTEXISTS`, so));
+    const existsResult = await exec(
+      client,
+      wrapSudo(
+        `test -e ${JSON.stringify(path)} && echo EXISTS || echo NOTEXISTS`,
+        so,
+      ),
+    );
     if (existsResult.stdout.trim() === "NOTEXISTS") {
-      return { exists: false, isLink: false, linkTarget: null, owner: null, group: null };
+      return {
+        exists: false,
+        isLink: false,
+        linkTarget: null,
+        owner: null,
+        group: null,
+      };
     }
-    const statResult = await exec(client, wrapSudo(`stat -c '%U|%G' ${JSON.stringify(path)} 2>/dev/null`, so));
+    const statResult = await exec(
+      client,
+      wrapSudo(`stat -c '%U|%G' ${JSON.stringify(path)} 2>/dev/null`, so),
+    );
     const [owner, group] = statResult.stdout.trim().split("|");
     return { exists: true, isLink: false, linkTarget: null, owner, group };
   }
 
-  const targetResult = await exec(client, wrapSudo(`readlink ${JSON.stringify(path)}`, so));
+  const targetResult = await exec(
+    client,
+    wrapSudo(`readlink ${JSON.stringify(path)}`, so),
+  );
   const linkTarget = targetResult.stdout.trim();
 
-  const statResult = await exec(client, wrapSudo(`stat -c '%U|%G' ${JSON.stringify(path)} 2>/dev/null`, so));
+  const statResult = await exec(
+    client,
+    wrapSudo(`stat -c '%U|%G' ${JSON.stringify(path)} 2>/dev/null`, so),
+  );
   const [owner, group] = statResult.stdout.trim().split("|");
 
   return { exists: true, isLink: true, linkTarget, owner, group };
@@ -79,8 +118,12 @@ function detectChanges(g, current) {
     } else if (g.target && current.linkTarget !== g.target) {
       changes.push(`target: ${current.linkTarget} -> ${g.target}`);
     }
-    if (g.owner && current.owner !== g.owner) changes.push(`owner: ${current.owner} -> ${g.owner}`);
-    if (g.group && current.group !== g.group) changes.push(`group: ${current.group} -> ${g.group}`);
+    if (g.owner && current.owner !== g.owner) {
+      changes.push(`owner: ${current.owner} -> ${g.owner}`);
+    }
+    if (g.group && current.group !== g.group) {
+      changes.push(`group: ${current.group} -> ${g.group}`);
+    }
   } else {
     if (current.exists) changes.push("remove symlink");
   }
@@ -92,7 +135,9 @@ export const model = {
   version: "2026.03.02.1",
   globalArguments: GlobalArgsSchema,
   inputsSchema: z.object({
-    nodeHost: z.string().optional().describe("Hostname or IP of the remote node"),
+    nodeHost: z.string().optional().describe(
+      "Hostname or IP of the remote node",
+    ),
     nodeUser: z.string().optional().describe("SSH username"),
     nodePort: z.number().optional().describe("SSH port"),
     nodeIdentityFile: z.string().optional().describe("Path to SSH private key"),
@@ -133,7 +178,13 @@ export const model = {
             path: g.path,
             ensure: g.ensure,
             status: "failed",
-            current: { exists: false, isLink: false, linkTarget: null, owner: null, group: null },
+            current: {
+              exists: false,
+              isLink: false,
+              linkTarget: null,
+              owner: null,
+              group: null,
+            },
             changes: [],
             error: err.message,
             timestamp: new Date().toISOString(),
@@ -169,10 +220,26 @@ export const model = {
           if (g.ensure === "absent") {
             await exec(client, wrapSudo(`rm -f ${JSON.stringify(g.path)}`, so));
           } else {
-            await exec(client, wrapSudo(`ln -sfn ${JSON.stringify(g.target)} ${JSON.stringify(g.path)}`, so));
+            await exec(
+              client,
+              wrapSudo(
+                `ln -sfn ${JSON.stringify(g.target)} ${JSON.stringify(g.path)}`,
+                so,
+              ),
+            );
             if (g.owner || g.group) {
-              const ownership = g.group ? `${g.owner || ""}:${g.group}` : g.owner;
-              await exec(client, wrapSudo(`chown -h ${JSON.stringify(ownership)} ${JSON.stringify(g.path)}`, so));
+              const ownership = g.group
+                ? `${g.owner || ""}:${g.group}`
+                : g.owner;
+              await exec(
+                client,
+                wrapSudo(
+                  `chown -h ${JSON.stringify(ownership)} ${
+                    JSON.stringify(g.path)
+                  }`,
+                  so,
+                ),
+              );
             }
           }
 
@@ -192,7 +259,13 @@ export const model = {
             path: g.path,
             ensure: g.ensure,
             status: "failed",
-            current: { exists: false, isLink: false, linkTarget: null, owner: null, group: null },
+            current: {
+              exists: false,
+              isLink: false,
+              linkTarget: null,
+              owner: null,
+              group: null,
+            },
             changes: [],
             error: err.message,
             timestamp: new Date().toISOString(),

@@ -1,26 +1,38 @@
 import { z } from "npm:zod@4";
-import { getConnection, exec, wrapSudo } from "./_lib/ssh.ts";
+import { exec, getConnection, wrapSudo } from "./_lib/ssh.ts";
 
 const GlobalArgsSchema = z.object({
   command: z.string().describe("The command to execute"),
-  onlyIf: z.string().optional().describe("Guard: only run if this command exits 0"),
+  onlyIf: z.string().optional().describe(
+    "Guard: only run if this command exits 0",
+  ),
   notIf: z.string().optional().describe("Guard: skip if this command exits 0"),
   nodeHost: z.string().describe("Hostname or IP of the remote node"),
   nodeUser: z.string().default("root").describe("SSH username"),
   nodePort: z.number().default(22).describe("SSH port"),
   nodeIdentityFile: z.string().optional().describe("Path to SSH private key"),
-  become: z.boolean().default(false).describe("Enable sudo privilege escalation"),
+  become: z.boolean().default(false).describe(
+    "Enable sudo privilege escalation",
+  ),
   becomeUser: z.string().default("root").describe("User to become via sudo"),
-  becomePassword: z.string().optional().meta({ sensitive: true }).describe("Password for sudo -S"),
+  becomePassword: z.string().optional().meta({ sensitive: true }).describe(
+    "Password for sudo -S",
+  ),
 });
 
 function sudoOpts(g) {
-  return { become: g.become, becomeUser: g.becomeUser, becomePassword: g.becomePassword };
+  return {
+    become: g.become,
+    becomeUser: g.becomeUser,
+    becomePassword: g.becomePassword,
+  };
 }
 
 const StateSchema = z.object({
   command: z.string().describe("The command that was or would be executed"),
-  status: z.enum(["compliant", "non_compliant", "applied", "failed"]).describe("Compliance status"),
+  status: z.enum(["compliant", "non_compliant", "applied", "failed"]).describe(
+    "Compliance status",
+  ),
   stdout: z.string().describe("Standard output from the command"),
   stderr: z.string().describe("Standard error from the command"),
   exitCode: z.number().describe("Exit code of the command"),
@@ -29,7 +41,7 @@ const StateSchema = z.object({
   timestamp: z.string().describe("ISO 8601 timestamp"),
 });
 
-async function connect(g) {
+function connect(g) {
   return getConnection({
     host: g.nodeHost,
     port: g.nodePort,
@@ -38,7 +50,10 @@ async function connect(g) {
   });
 }
 
-async function shouldRun(client, g): Promise<{ run: boolean; reason: string | null }> {
+async function shouldRun(
+  client,
+  g,
+): Promise<{ run: boolean; reason: string | null }> {
   const so = sudoOpts(g);
   if (g.onlyIf !== undefined) {
     const r = await exec(client, wrapSudo(g.onlyIf, so));
@@ -60,7 +75,9 @@ export const model = {
   version: "2026.03.02.1",
   globalArguments: GlobalArgsSchema,
   inputsSchema: z.object({
-    nodeHost: z.string().optional().describe("Hostname or IP of the remote node"),
+    nodeHost: z.string().optional().describe(
+      "Hostname or IP of the remote node",
+    ),
     nodeUser: z.string().optional().describe("SSH username"),
     nodePort: z.number().optional().describe("SSH port"),
     nodeIdentityFile: z.string().optional().describe("Path to SSH private key"),
@@ -78,7 +95,8 @@ export const model = {
   },
   methods: {
     check: {
-      description: "Dry-run: validate SSH connectivity without executing the command",
+      description:
+        "Dry-run: validate SSH connectivity without executing the command",
       arguments: z.object({}),
       execute: async (_args, context) => {
         const g = context.globalArgs;
