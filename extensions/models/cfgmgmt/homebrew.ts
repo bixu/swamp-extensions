@@ -1,20 +1,28 @@
 import { z } from "npm:zod@4";
-import { getConnection, exec } from "./_lib/ssh.ts";
+import { exec, getConnection } from "./_lib/ssh.ts";
 
 const GlobalArgsSchema = z.object({
   packages: z.array(z.string()).default([]).describe("Formula names to manage"),
-  ensure: z.enum(["present", "absent"]).default("present").describe("Whether packages should be present or absent"),
+  ensure: z.enum(["present", "absent"]).default("present").describe(
+    "Whether packages should be present or absent",
+  ),
   nodeHost: z.string().describe("Hostname or IP of the remote node"),
   nodeUser: z.string().default("root").describe("SSH username"),
   nodePort: z.number().default(22).describe("SSH port"),
   nodeIdentityFile: z.string().optional().describe("Path to SSH private key"),
-  become: z.boolean().default(false).describe("Accepted but ignored (brew forbids root)"),
+  become: z.boolean().default(false).describe(
+    "Accepted but ignored (brew forbids root)",
+  ),
   becomeUser: z.string().default("root").describe("Accepted but ignored"),
-  becomePassword: z.string().optional().meta({ sensitive: true }).describe("Accepted but ignored"),
+  becomePassword: z.string().optional().meta({ sensitive: true }).describe(
+    "Accepted but ignored",
+  ),
 });
 
 const StateSchema = z.object({
-  status: z.enum(["compliant", "non_compliant", "applied", "failed"]).describe("Compliance status"),
+  status: z.enum(["compliant", "non_compliant", "applied", "failed"]).describe(
+    "Compliance status",
+  ),
   packages: z.array(z.object({
     name: z.string().describe("Package name"),
     installed: z.boolean().describe("Whether the package is installed"),
@@ -36,7 +44,7 @@ const InstalledSchema = z.object({
   timestamp: z.string().describe("ISO 8601 timestamp"),
 });
 
-async function connect(g) {
+function connect(g) {
   return getConnection({
     host: g.nodeHost,
     port: g.nodePort,
@@ -48,10 +56,18 @@ async function connect(g) {
 async function queryPackages(client, packages) {
   const results = [];
   for (const pkg of packages) {
-    const r = await exec(client, `brew list --formula ${JSON.stringify(pkg)} 2>/dev/null`);
+    const r = await exec(
+      client,
+      `brew list --formula ${JSON.stringify(pkg)} 2>/dev/null`,
+    );
     if (r.exitCode === 0) {
-      const v = await exec(client, `brew list --formula --versions ${JSON.stringify(pkg)} 2>/dev/null`);
-      const version = v.exitCode === 0 ? v.stdout.trim().split(/\s+/).slice(1).join(" ") || null : null;
+      const v = await exec(
+        client,
+        `brew list --formula --versions ${JSON.stringify(pkg)} 2>/dev/null`,
+      );
+      const version = v.exitCode === 0
+        ? v.stdout.trim().split(/\s+/).slice(1).join(" ") || null
+        : null;
       results.push({ name: pkg, installed: true, version });
     } else {
       results.push({ name: pkg, installed: false, version: null });
@@ -77,13 +93,21 @@ export const model = {
   version: "2026.03.02.1",
   globalArguments: GlobalArgsSchema,
   inputsSchema: z.object({
-    packages: z.array(z.string()).optional().describe("Formula names to manage"),
-    ensure: z.enum(["present", "absent"]).optional().describe("Whether packages should be present or absent"),
-    nodeHost: z.string().optional().describe("Hostname or IP of the remote node"),
+    packages: z.array(z.string()).optional().describe(
+      "Formula names to manage",
+    ),
+    ensure: z.enum(["present", "absent"]).optional().describe(
+      "Whether packages should be present or absent",
+    ),
+    nodeHost: z.string().optional().describe(
+      "Hostname or IP of the remote node",
+    ),
     nodeUser: z.string().optional().describe("SSH username"),
     nodePort: z.number().optional().describe("SSH port"),
     nodeIdentityFile: z.string().optional().describe("Path to SSH private key"),
-    become: z.boolean().optional().describe("Accepted but ignored (brew forbids root)"),
+    become: z.boolean().optional().describe(
+      "Accepted but ignored (brew forbids root)",
+    ),
     becomeUser: z.string().optional().describe("Accepted but ignored"),
     becomePassword: z.string().optional().describe("Accepted but ignored"),
   }),
@@ -158,8 +182,12 @@ export const model = {
             return { dataHandles: [handle] };
           }
 
-          const toInstall = packages.filter((p) => g.ensure === "present" && !p.installed).map((p) => p.name);
-          const toRemove = packages.filter((p) => g.ensure === "absent" && p.installed).map((p) => p.name);
+          const toInstall = packages.filter((p) =>
+            g.ensure === "present" && !p.installed
+          ).map((p) => p.name);
+          const toRemove = packages.filter((p) =>
+            g.ensure === "absent" && p.installed
+          ).map((p) => p.name);
 
           let stdout = "";
           let stderr = "";
@@ -183,7 +211,10 @@ export const model = {
           }
 
           if (toRemove.length > 0) {
-            const r = await exec(client, `brew uninstall ${toRemove.join(" ")}`);
+            const r = await exec(
+              client,
+              `brew uninstall ${toRemove.join(" ")}`,
+            );
             stdout += r.stdout;
             stderr += r.stderr;
             if (r.exitCode !== 0) {
@@ -239,7 +270,9 @@ export const model = {
             changes: r.exitCode === 0 ? ["database updated"] : [],
             stdout: r.stdout,
             stderr: r.stderr,
-            error: r.exitCode !== 0 ? `brew update failed with exit code ${r.exitCode}` : null,
+            error: r.exitCode !== 0
+              ? `brew update failed with exit code ${r.exitCode}`
+              : null,
             timestamp: new Date().toISOString(),
           });
           return { dataHandles: [handle] };
@@ -271,7 +304,9 @@ export const model = {
             changes: r.exitCode === 0 ? ["system upgraded"] : [],
             stdout: r.stdout,
             stderr: r.stderr,
-            error: r.exitCode !== 0 ? `brew upgrade failed with exit code ${r.exitCode}` : null,
+            error: r.exitCode !== 0
+              ? `brew upgrade failed with exit code ${r.exitCode}`
+              : null,
             timestamp: new Date().toISOString(),
           });
           return { dataHandles: [handle] };
@@ -314,7 +349,10 @@ export const model = {
             .filter((line) => line.length > 0)
             .map((line) => {
               const parts = line.split(/\s+/);
-              return { name: parts[0], version: parts.slice(1).join(" ") || "unknown" };
+              return {
+                name: parts[0],
+                version: parts.slice(1).join(" ") || "unknown",
+              };
             });
 
           const handle = await context.writeResource("installed", g.nodeHost, {

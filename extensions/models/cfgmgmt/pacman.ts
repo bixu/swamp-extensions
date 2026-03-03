@@ -1,24 +1,36 @@
 import { z } from "npm:zod@4";
-import { getConnection, exec, wrapSudo } from "./_lib/ssh.ts";
+import { exec, getConnection, wrapSudo } from "./_lib/ssh.ts";
 
 const GlobalArgsSchema = z.object({
   packages: z.array(z.string()).default([]).describe("Package names to manage"),
-  ensure: z.enum(["present", "absent"]).default("present").describe("Whether packages should be present or absent"),
+  ensure: z.enum(["present", "absent"]).default("present").describe(
+    "Whether packages should be present or absent",
+  ),
   nodeHost: z.string().describe("Hostname or IP of the remote node"),
   nodeUser: z.string().default("root").describe("SSH username"),
   nodePort: z.number().default(22).describe("SSH port"),
   nodeIdentityFile: z.string().optional().describe("Path to SSH private key"),
-  become: z.boolean().default(false).describe("Enable sudo privilege escalation"),
+  become: z.boolean().default(false).describe(
+    "Enable sudo privilege escalation",
+  ),
   becomeUser: z.string().default("root").describe("User to become via sudo"),
-  becomePassword: z.string().optional().meta({ sensitive: true }).describe("Password for sudo -S"),
+  becomePassword: z.string().optional().meta({ sensitive: true }).describe(
+    "Password for sudo -S",
+  ),
 });
 
 function sudoOpts(g) {
-  return { become: g.become, becomeUser: g.becomeUser, becomePassword: g.becomePassword };
+  return {
+    become: g.become,
+    becomeUser: g.becomeUser,
+    becomePassword: g.becomePassword,
+  };
 }
 
 const StateSchema = z.object({
-  status: z.enum(["compliant", "non_compliant", "applied", "failed"]).describe("Compliance status"),
+  status: z.enum(["compliant", "non_compliant", "applied", "failed"]).describe(
+    "Compliance status",
+  ),
   packages: z.array(z.object({
     name: z.string().describe("Package name"),
     installed: z.boolean().describe("Whether the package is installed"),
@@ -40,7 +52,7 @@ const InstalledSchema = z.object({
   timestamp: z.string().describe("ISO 8601 timestamp"),
 });
 
-async function connect(g) {
+function connect(g) {
   return getConnection({
     host: g.nodeHost,
     port: g.nodePort,
@@ -53,7 +65,10 @@ async function queryPackages(client, packages, g) {
   const so = sudoOpts(g);
   const results = [];
   for (const pkg of packages) {
-    const r = await exec(client, wrapSudo(`pacman -Q ${JSON.stringify(pkg)} 2>/dev/null`, so));
+    const r = await exec(
+      client,
+      wrapSudo(`pacman -Q ${JSON.stringify(pkg)} 2>/dev/null`, so),
+    );
     if (r.exitCode === 0) {
       const parts = r.stdout.trim().split(/\s+/);
       results.push({ name: pkg, installed: true, version: parts[1] || null });
@@ -81,9 +96,15 @@ export const model = {
   version: "2026.03.02.1",
   globalArguments: GlobalArgsSchema,
   inputsSchema: z.object({
-    packages: z.array(z.string()).optional().describe("Package names to manage"),
-    ensure: z.enum(["present", "absent"]).optional().describe("Whether packages should be present or absent"),
-    nodeHost: z.string().optional().describe("Hostname or IP of the remote node"),
+    packages: z.array(z.string()).optional().describe(
+      "Package names to manage",
+    ),
+    ensure: z.enum(["present", "absent"]).optional().describe(
+      "Whether packages should be present or absent",
+    ),
+    nodeHost: z.string().optional().describe(
+      "Hostname or IP of the remote node",
+    ),
     nodeUser: z.string().optional().describe("SSH username"),
     nodePort: z.number().optional().describe("SSH port"),
     nodeIdentityFile: z.string().optional().describe("Path to SSH private key"),
@@ -162,15 +183,22 @@ export const model = {
             return { dataHandles: [handle] };
           }
 
-          const toInstall = packages.filter((p) => g.ensure === "present" && !p.installed).map((p) => p.name);
-          const toRemove = packages.filter((p) => g.ensure === "absent" && p.installed).map((p) => p.name);
+          const toInstall = packages.filter((p) =>
+            g.ensure === "present" && !p.installed
+          ).map((p) => p.name);
+          const toRemove = packages.filter((p) =>
+            g.ensure === "absent" && p.installed
+          ).map((p) => p.name);
 
           let stdout = "";
           let stderr = "";
 
           const so = sudoOpts(g);
           if (toInstall.length > 0) {
-            const r = await exec(client, wrapSudo(`pacman -S --noconfirm ${toInstall.join(" ")}`, so));
+            const r = await exec(
+              client,
+              wrapSudo(`pacman -S --noconfirm ${toInstall.join(" ")}`, so),
+            );
             stdout += r.stdout;
             stderr += r.stderr;
             if (r.exitCode !== 0) {
@@ -188,7 +216,10 @@ export const model = {
           }
 
           if (toRemove.length > 0) {
-            const r = await exec(client, wrapSudo(`pacman -R --noconfirm ${toRemove.join(" ")}`, so));
+            const r = await exec(
+              client,
+              wrapSudo(`pacman -R --noconfirm ${toRemove.join(" ")}`, so),
+            );
             stdout += r.stdout;
             stderr += r.stderr;
             if (r.exitCode !== 0) {
@@ -244,7 +275,9 @@ export const model = {
             changes: r.exitCode === 0 ? ["database updated"] : [],
             stdout: r.stdout,
             stderr: r.stderr,
-            error: r.exitCode !== 0 ? `pacman -Sy failed with exit code ${r.exitCode}` : null,
+            error: r.exitCode !== 0
+              ? `pacman -Sy failed with exit code ${r.exitCode}`
+              : null,
             timestamp: new Date().toISOString(),
           });
           return { dataHandles: [handle] };
@@ -269,14 +302,19 @@ export const model = {
         const g = context.globalArgs;
         try {
           const client = await connect(g);
-          const r = await exec(client, wrapSudo("pacman -Syu --noconfirm", sudoOpts(g)));
+          const r = await exec(
+            client,
+            wrapSudo("pacman -Syu --noconfirm", sudoOpts(g)),
+          );
           const handle = await context.writeResource("state", g.nodeHost, {
             status: r.exitCode === 0 ? "applied" : "failed",
             packages: null,
             changes: r.exitCode === 0 ? ["system upgraded"] : [],
             stdout: r.stdout,
             stderr: r.stderr,
-            error: r.exitCode !== 0 ? `pacman -Syu failed with exit code ${r.exitCode}` : null,
+            error: r.exitCode !== 0
+              ? `pacman -Syu failed with exit code ${r.exitCode}`
+              : null,
             timestamp: new Date().toISOString(),
           });
           return { dataHandles: [handle] };

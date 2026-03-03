@@ -1,5 +1,5 @@
 import { z } from "npm:zod@4";
-import { getConnection, exec, closeAll } from "./_lib/ssh.ts";
+import { exec, getConnection } from "./_lib/ssh.ts";
 
 const GlobalArgsSchema = z.object({
   hostname: z.string().describe("Hostname or IP of the remote node"),
@@ -15,7 +15,9 @@ const InfoSchema = z.object({
   arch: z.string().describe("CPU architecture (e.g. x86_64, aarch64)"),
   kernel: z.string().describe("Kernel version"),
   packageManagers: z.array(z.string()).describe("Detected package managers"),
-  gatheredAt: z.string().describe("ISO 8601 timestamp of when facts were gathered"),
+  gatheredAt: z.string().describe(
+    "ISO 8601 timestamp of when facts were gathered",
+  ),
 });
 
 export const model = {
@@ -23,7 +25,9 @@ export const model = {
   version: "2026.03.02.1",
   globalArguments: GlobalArgsSchema,
   inputsSchema: z.object({
-    hostname: z.string().optional().describe("Hostname or IP of the remote node"),
+    hostname: z.string().optional().describe(
+      "Hostname or IP of the remote node",
+    ),
     sshUser: z.string().optional().describe("SSH username"),
     sshPort: z.number().optional().describe("SSH port"),
     sshIdentityFile: z.string().optional().describe("Path to SSH private key"),
@@ -54,7 +58,10 @@ export const model = {
         const kernel = unameParts[1] || unameParts[0] || "unknown";
         const arch = unameParts[2] || "unknown";
 
-        const osReleaseResult = await exec(client, "cat /etc/os-release 2>/dev/null || echo 'ID=unknown'");
+        const osReleaseResult = await exec(
+          client,
+          "cat /etc/os-release 2>/dev/null || echo 'ID=unknown'",
+        );
         const osRelease = new Map<string, string>();
         for (const line of osReleaseResult.stdout.split("\n")) {
           const eq = line.indexOf("=");
