@@ -2,5 +2,32 @@
   "@john/tailscale": {
     "version": "2026.02.28.3",
     "pulledAt": "2026-03-01T11:17:04.343Z"
+  },
+  "@adam/cfgmgmt": {
+    "version": "2026.03.02.1",
+    "pulledAt": "2026-03-03T08:38:10.375Z",
+    "files": [
+      "extensions/models/cfgmgmt/node.ts",
+      "extensions/models/cfgmgmt/directory.ts",
+      "extensions/models/cfgmgmt/apt.ts",
+      "extensions/models/cfgmgmt/file.ts",
+      "extensions/models/cfgmgmt/_lib/ssh.ts",
+      "extensions/models/cfgmgmt/dnf.ts",
+      "extensions/models/cfgmgmt/homebrew.ts",
+      "extensions/models/cfgmgmt/systemd.ts",
+      "extensions/models/cfgmgmt/exec.ts",
+      "extensions/models/cfgmgmt/pacman.ts",
+      "extensions/models/cfgmgmt/link.ts",
+      ".swamp/bundles/cfgmgmt/homebrew.js",
+      ".swamp/bundles/cfgmgmt/exec.js",
+      ".swamp/bundles/cfgmgmt/systemd.js",
+      ".swamp/bundles/cfgmgmt/pacman.js",
+      ".swamp/bundles/cfgmgmt/link.js",
+      ".swamp/bundles/cfgmgmt/directory.js",
+      ".swamp/bundles/cfgmgmt/node.js",
+      ".swamp/bundles/cfgmgmt/file.js",
+      ".swamp/bundles/cfgmgmt/dnf.js",
+      ".swamp/bundles/cfgmgmt/apt.js"
+    ]
   }
 }
