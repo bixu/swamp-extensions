@@ -178,7 +178,7 @@ export const model = {
           });
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
+          await context.writeResource("state", g.nodeHost, {
             service: g.service,
             status: "failed",
             current: emptyCurrent(),
@@ -186,7 +186,7 @@ export const model = {
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },
@@ -268,9 +268,10 @@ export const model = {
             error: failed ? errors.join("; ") : null,
             timestamp: new Date().toISOString(),
           });
+          if (failed) throw new Error(errors.join("; "));
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
+          await context.writeResource("state", g.nodeHost, {
             service: g.service,
             status: "failed",
             current: emptyCurrent(),
@@ -278,7 +279,7 @@ export const model = {
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },
@@ -298,17 +299,19 @@ export const model = {
           );
           const current = await gather(client, g.service, g);
 
+          const failed = result.exitCode !== 0;
           const handle = await context.writeResource("state", g.nodeHost, {
             service: g.service,
-            status: result.exitCode === 0 ? "applied" : "failed",
+            status: failed ? "failed" : "applied",
             current,
             changes: ["restart service"],
-            error: result.exitCode !== 0 ? result.stderr : null,
+            error: failed ? result.stderr : null,
             timestamp: new Date().toISOString(),
           });
+          if (failed) throw new Error(result.stderr);
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
+          await context.writeResource("state", g.nodeHost, {
             service: g.service,
             status: "failed",
             current: emptyCurrent(),
@@ -316,7 +319,7 @@ export const model = {
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },

@@ -147,7 +147,7 @@ export const model = {
           });
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
+          await context.writeResource("state", g.nodeHost, {
             status: "failed",
             packages: null,
             changes: [],
@@ -156,7 +156,7 @@ export const model = {
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },
@@ -202,16 +202,18 @@ export const model = {
             stdout += r.stdout;
             stderr += r.stderr;
             if (r.exitCode !== 0) {
-              const handle = await context.writeResource("state", g.nodeHost, {
+              const errorMsg =
+                `dnf install failed with exit code ${r.exitCode}`;
+              await context.writeResource("state", g.nodeHost, {
                 status: "failed",
                 packages: await queryPackages(client, g.packages, g),
                 changes,
                 stdout,
                 stderr,
-                error: `dnf install failed with exit code ${r.exitCode}`,
+                error: errorMsg,
                 timestamp: new Date().toISOString(),
               });
-              return { dataHandles: [handle] };
+              throw new Error(errorMsg);
             }
           }
 
@@ -224,16 +226,17 @@ export const model = {
             stdout += r.stdout;
             stderr += r.stderr;
             if (r.exitCode !== 0) {
-              const handle = await context.writeResource("state", g.nodeHost, {
+              const errorMsg = `dnf remove failed with exit code ${r.exitCode}`;
+              await context.writeResource("state", g.nodeHost, {
                 status: "failed",
                 packages: await queryPackages(client, g.packages, g),
                 changes,
                 stdout,
                 stderr,
-                error: `dnf remove failed with exit code ${r.exitCode}`,
+                error: errorMsg,
                 timestamp: new Date().toISOString(),
               });
-              return { dataHandles: [handle] };
+              throw new Error(errorMsg);
             }
           }
 
@@ -249,7 +252,7 @@ export const model = {
           });
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
+          await context.writeResource("state", g.nodeHost, {
             status: "failed",
             packages: null,
             changes: [],
@@ -258,7 +261,7 @@ export const model = {
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },
@@ -270,20 +273,26 @@ export const model = {
         try {
           const client = await connect(g);
           const r = await exec(client, wrapSudo("dnf makecache", sudoOpts(g)));
+          const failed = r.exitCode !== 0;
           const handle = await context.writeResource("state", g.nodeHost, {
-            status: r.exitCode === 0 ? "applied" : "failed",
+            status: failed ? "failed" : "applied",
             packages: null,
-            changes: r.exitCode === 0 ? ["metadata refreshed"] : [],
+            changes: failed ? [] : ["metadata refreshed"],
             stdout: r.stdout,
             stderr: r.stderr,
-            error: r.exitCode !== 0
+            error: failed
               ? `dnf makecache failed with exit code ${r.exitCode}`
               : null,
             timestamp: new Date().toISOString(),
           });
+          if (failed) {
+            throw new Error(
+              `dnf makecache failed with exit code ${r.exitCode}`,
+            );
+          }
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
+          await context.writeResource("state", g.nodeHost, {
             status: "failed",
             packages: null,
             changes: [],
@@ -292,7 +301,7 @@ export const model = {
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },
@@ -304,20 +313,26 @@ export const model = {
         try {
           const client = await connect(g);
           const r = await exec(client, wrapSudo("dnf upgrade -y", sudoOpts(g)));
+          const failed = r.exitCode !== 0;
           const handle = await context.writeResource("state", g.nodeHost, {
-            status: r.exitCode === 0 ? "applied" : "failed",
+            status: failed ? "failed" : "applied",
             packages: null,
-            changes: r.exitCode === 0 ? ["system upgraded"] : [],
+            changes: failed ? [] : ["system upgraded"],
             stdout: r.stdout,
             stderr: r.stderr,
-            error: r.exitCode !== 0
+            error: failed
               ? `dnf upgrade failed with exit code ${r.exitCode}`
               : null,
             timestamp: new Date().toISOString(),
           });
+          if (failed) {
+            throw new Error(
+              `dnf upgrade failed with exit code ${r.exitCode}`,
+            );
+          }
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
+          await context.writeResource("state", g.nodeHost, {
             status: "failed",
             packages: null,
             changes: [],
@@ -326,7 +341,7 @@ export const model = {
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },
@@ -345,16 +360,17 @@ export const model = {
             ),
           );
           if (r.exitCode !== 0) {
-            const handle = await context.writeResource("state", g.nodeHost, {
+            const errorMsg = `rpm -qa failed with exit code ${r.exitCode}`;
+            await context.writeResource("state", g.nodeHost, {
               status: "failed",
               packages: null,
               changes: [],
               stdout: r.stdout,
               stderr: r.stderr,
-              error: `rpm -qa failed with exit code ${r.exitCode}`,
+              error: errorMsg,
               timestamp: new Date().toISOString(),
             });
-            return { dataHandles: [handle] };
+            throw new Error(errorMsg);
           }
 
           const packages = r.stdout.trim().split("\n")
@@ -371,7 +387,7 @@ export const model = {
           });
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
+          await context.writeResource("state", g.nodeHost, {
             status: "failed",
             packages: null,
             changes: [],
@@ -380,7 +396,7 @@ export const model = {
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },
