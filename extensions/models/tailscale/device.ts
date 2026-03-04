@@ -1,8 +1,8 @@
 import { z } from "npm:zod@4";
 import {
-  sanitizeInstanceName,
   TailscaleGlobalArgsSchema,
   tsApi,
+  sanitizeInstanceName,
 } from "./_helpers.ts";
 
 const DeviceSchema = z
@@ -304,7 +304,8 @@ export const model = {
     },
 
     getRoutes: {
-      description: "Get advertised and enabled subnet routes for a device.",
+      description:
+        "Get advertised and enabled subnet routes for a device.",
       arguments: z.object({
         deviceId: z.string().describe("Device ID"),
       }),

@@ -50,30 +50,14 @@ export const model = {
     update: {
       description: "Update tailnet settings (partial update).",
       arguments: z.object({
-        devicesApprovalOn: z.boolean().optional().describe(
-          "Require device approval",
-        ),
-        devicesAutoUpdatesOn: z.boolean().optional().describe(
-          "Enable auto-updates",
-        ),
-        devicesKeyDurationDays: z.number().optional().describe(
-          "Key duration in days",
-        ),
-        usersApprovalOn: z.boolean().optional().describe(
-          "Require user approval",
-        ),
-        usersRoleAllowedToJoinExternalTailnets: z.string().optional().describe(
-          "Role allowed to join external tailnets",
-        ),
-        networkFlowLoggingOn: z.boolean().optional().describe(
-          "Enable network flow logging",
-        ),
-        regionalRoutingOn: z.boolean().optional().describe(
-          "Enable regional routing",
-        ),
-        postureIdentityCollectionOn: z.boolean().optional().describe(
-          "Enable posture identity collection",
-        ),
+        devicesApprovalOn: z.boolean().optional().describe("Require device approval"),
+        devicesAutoUpdatesOn: z.boolean().optional().describe("Enable auto-updates"),
+        devicesKeyDurationDays: z.number().optional().describe("Key duration in days"),
+        usersApprovalOn: z.boolean().optional().describe("Require user approval"),
+        usersRoleAllowedToJoinExternalTailnets: z.string().optional().describe("Role allowed to join external tailnets"),
+        networkFlowLoggingOn: z.boolean().optional().describe("Enable network flow logging"),
+        regionalRoutingOn: z.boolean().optional().describe("Enable regional routing"),
+        postureIdentityCollectionOn: z.boolean().optional().describe("Enable posture identity collection"),
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;

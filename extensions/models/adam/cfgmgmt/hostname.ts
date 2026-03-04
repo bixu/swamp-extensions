@@ -1,12 +1,8 @@
 import { z } from "npm:zod@4";
-import { exec, getConnection, wrapSudo } from "./_lib/ssh.ts";
+import { exec, getConnection, wrapSudo, writeFileAs } from "./_lib/ssh.ts";
 
 const GlobalArgsSchema = z.object({
-  command: z.string().describe("The command to execute"),
-  onlyIf: z.string().optional().describe(
-    "Guard: only run if this command exits 0",
-  ),
-  notIf: z.string().optional().describe("Guard: skip if this command exits 0"),
+  name: z.string().describe("Desired system hostname"),
   nodeHost: z.string().describe("Hostname or IP of the remote node"),
   nodeUser: z.string().default("root").describe("SSH username"),
   nodePort: z.number().default(22).describe("SSH port"),
@@ -29,14 +25,17 @@ function sudoOpts(g) {
 }
 
 const StateSchema = z.object({
-  command: z.string().describe("The command that was or would be executed"),
+  name: z.string().describe("Desired hostname"),
   status: z.enum(["compliant", "non_compliant", "applied", "failed"]).describe(
     "Compliance status",
   ),
-  stdout: z.string().describe("Standard output from the command"),
-  stderr: z.string().describe("Standard error from the command"),
-  exitCode: z.number().describe("Exit code of the command"),
-  changes: z.array(z.string()).describe("List of changes"),
+  current: z.object({
+    hostname: z.string().nullable().describe("Current live hostname"),
+    etcHostname: z.string().nullable().describe(
+      "Current contents of /etc/hostname",
+    ),
+  }).describe("Current hostname state on the remote node"),
+  changes: z.array(z.string()).describe("List of changes detected or applied"),
   error: z.string().nullable().describe("Error message if status is failed"),
   timestamp: z.string().describe("ISO 8601 timestamp"),
 });
@@ -50,29 +49,43 @@ function connect(g) {
   });
 }
 
-async function shouldRun(
-  client,
-  g,
-): Promise<{ run: boolean; reason: string | null }> {
+async function gather(client, g) {
   const so = sudoOpts(g);
-  if (g.onlyIf !== undefined) {
-    const r = await exec(client, wrapSudo(g.onlyIf, so));
-    if (r.exitCode !== 0) {
-      return { run: false, reason: `onlyIf command exited ${r.exitCode}` };
-    }
+  const hostnameResult = await exec(
+    client,
+    wrapSudo(
+      `hostnamectl --static 2>/dev/null || hostname`,
+      so,
+    ),
+  );
+  const etcResult = await exec(
+    client,
+    wrapSudo(`cat /etc/hostname 2>/dev/null || echo ''`, so),
+  );
+  return {
+    hostname: hostnameResult.stdout.trim() || null,
+    etcHostname: etcResult.stdout.trim() || null,
+  };
+}
+
+function detectChanges(g, current) {
+  const changes: string[] = [];
+  if (current.hostname !== g.name) {
+    changes.push(`hostname: ${current.hostname} -> ${g.name}`);
   }
-  if (g.notIf !== undefined) {
-    const r = await exec(client, wrapSudo(g.notIf, so));
-    if (r.exitCode === 0) {
-      return { run: false, reason: `notIf command exited 0` };
-    }
+  if (current.etcHostname !== g.name) {
+    changes.push(`/etc/hostname: ${current.etcHostname} -> ${g.name}`);
   }
-  return { run: true, reason: null };
+  return changes;
+}
+
+function emptyCurrent() {
+  return { hostname: null, etcHostname: null };
 }
 
 export const model = {
-  type: "@adam/cfgmgmt/exec",
-  version: "2026.03.02.1",
+  type: "@adam/cfgmgmt/hostname",
+  version: "2026.03.03.1",
   globalArguments: GlobalArgsSchema,
   inputsSchema: z.object({
     nodeHost: z.string().optional().describe(
@@ -87,7 +100,7 @@ export const model = {
   }),
   resources: {
     state: {
-      description: "Result of command execution",
+      description: "Result of check or apply operation",
       schema: StateSchema,
       lifetime: "infinite",
       garbageCollection: 10,
@@ -95,85 +108,99 @@ export const model = {
   },
   methods: {
     check: {
-      description:
-        "Dry-run: validate SSH connectivity without executing the command",
+      description: "Check if hostname matches desired state (dry-run)",
       arguments: z.object({}),
       execute: async (_args, context) => {
         const g = context.globalArgs;
         try {
           const client = await connect(g);
-          const guard = await shouldRun(client, g);
+          const current = await gather(client, g);
+          const changes = detectChanges(g, current);
           const handle = await context.writeResource("state", g.nodeHost, {
-            command: g.command,
-            status: guard.run ? "non_compliant" : "compliant",
-            stdout: "",
-            stderr: "",
-            exitCode: 0,
-            changes: guard.run ? [`exec: ${g.command}`] : [],
+            name: g.name,
+            status: changes.length === 0 ? "compliant" : "non_compliant",
+            current,
+            changes,
             error: null,
             timestamp: new Date().toISOString(),
           });
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
-            command: g.command,
+          await context.writeResource("state", g.nodeHost, {
+            name: g.name,
             status: "failed",
-            stdout: "",
-            stderr: "",
-            exitCode: 1,
+            current: emptyCurrent(),
             changes: [],
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },
     apply: {
-      description: "Execute the command on the remote node via SSH",
+      description: "Set the system hostname to the desired value",
       arguments: z.object({}),
       execute: async (_args, context) => {
         const g = context.globalArgs;
         try {
           const client = await connect(g);
-          const guard = await shouldRun(client, g);
-          if (!guard.run) {
+          const current = await gather(client, g);
+          const changes = detectChanges(g, current);
+
+          if (changes.length === 0) {
             const handle = await context.writeResource("state", g.nodeHost, {
-              command: g.command,
+              name: g.name,
               status: "compliant",
-              stdout: "",
-              stderr: "",
-              exitCode: 0,
+              current,
               changes: [],
               error: null,
               timestamp: new Date().toISOString(),
             });
             return { dataHandles: [handle] };
           }
-          const result = await exec(client, wrapSudo(g.command, sudoOpts(g)));
+
+          const so = sudoOpts(g);
+          const hostnamectlCheck = await exec(
+            client,
+            wrapSudo("command -v hostnamectl", so),
+          );
+          if (hostnamectlCheck.exitCode === 0) {
+            await exec(
+              client,
+              wrapSudo(
+                `hostnamectl set-hostname ${JSON.stringify(g.name)}`,
+                so,
+              ),
+            );
+          } else {
+            await writeFileAs(client, "/etc/hostname", g.name + "\n", so);
+            await exec(
+              client,
+              wrapSudo(`hostname ${JSON.stringify(g.name)}`, so),
+            );
+          }
+
+          const updated = await gather(client, g);
           const handle = await context.writeResource("state", g.nodeHost, {
-            command: g.command,
-            status: result.exitCode === 0 ? "applied" : "failed",
-            stdout: result.stdout,
-            stderr: result.stderr,
-            exitCode: result.exitCode,
-            changes: [`exec: ${g.command}`],
-            error: result.exitCode !== 0 ? result.stderr : null,
+            name: g.name,
+            status: "applied",
+            current: updated,
+            changes,
+            error: null,
             timestamp: new Date().toISOString(),
           });
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
-            command: g.command,
+          await context.writeResource("state", g.nodeHost, {
+            name: g.name,
             status: "failed",
-            stdout: "",
-            stderr: "",
-            exitCode: 1,
+            current: emptyCurrent(),
             changes: [],
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },

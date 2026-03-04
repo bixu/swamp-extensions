@@ -152,7 +152,7 @@ export const model = {
           });
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
+          await context.writeResource("state", g.nodeHost, {
             status: "failed",
             packages: null,
             changes: [],
@@ -161,7 +161,7 @@ export const model = {
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },
@@ -212,16 +212,18 @@ export const model = {
             stdout += r.stdout;
             stderr += r.stderr;
             if (r.exitCode !== 0) {
-              const handle = await context.writeResource("state", g.nodeHost, {
+              const errorMsg =
+                `apt-get install failed with exit code ${r.exitCode}`;
+              await context.writeResource("state", g.nodeHost, {
                 status: "failed",
                 packages: await queryPackages(client, g.packages, g),
                 changes,
                 stdout,
                 stderr,
-                error: `apt-get install failed with exit code ${r.exitCode}`,
+                error: errorMsg,
                 timestamp: new Date().toISOString(),
               });
-              return { dataHandles: [handle] };
+              throw new Error(errorMsg);
             }
           }
 
@@ -238,16 +240,18 @@ export const model = {
             stdout += r.stdout;
             stderr += r.stderr;
             if (r.exitCode !== 0) {
-              const handle = await context.writeResource("state", g.nodeHost, {
+              const errorMsg =
+                `apt-get remove failed with exit code ${r.exitCode}`;
+              await context.writeResource("state", g.nodeHost, {
                 status: "failed",
                 packages: await queryPackages(client, g.packages, g),
                 changes,
                 stdout,
                 stderr,
-                error: `apt-get remove failed with exit code ${r.exitCode}`,
+                error: errorMsg,
                 timestamp: new Date().toISOString(),
               });
-              return { dataHandles: [handle] };
+              throw new Error(errorMsg);
             }
           }
 
@@ -263,7 +267,7 @@ export const model = {
           });
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
+          await context.writeResource("state", g.nodeHost, {
             status: "failed",
             packages: null,
             changes: [],
@@ -272,7 +276,7 @@ export const model = {
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },
@@ -284,20 +288,26 @@ export const model = {
         try {
           const client = await connect(g);
           const r = await exec(client, wrapSudo("apt-get update", sudoOpts(g)));
+          const failed = r.exitCode !== 0;
           const handle = await context.writeResource("state", g.nodeHost, {
-            status: r.exitCode === 0 ? "applied" : "failed",
+            status: failed ? "failed" : "applied",
             packages: null,
-            changes: r.exitCode === 0 ? ["database updated"] : [],
+            changes: failed ? [] : ["database updated"],
             stdout: r.stdout,
             stderr: r.stderr,
-            error: r.exitCode !== 0
+            error: failed
               ? `apt-get update failed with exit code ${r.exitCode}`
               : null,
             timestamp: new Date().toISOString(),
           });
+          if (failed) {
+            throw new Error(
+              `apt-get update failed with exit code ${r.exitCode}`,
+            );
+          }
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
+          await context.writeResource("state", g.nodeHost, {
             status: "failed",
             packages: null,
             changes: [],
@@ -306,7 +316,7 @@ export const model = {
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },
@@ -324,20 +334,26 @@ export const model = {
               sudoOpts(g),
             ),
           );
+          const failed = r.exitCode !== 0;
           const handle = await context.writeResource("state", g.nodeHost, {
-            status: r.exitCode === 0 ? "applied" : "failed",
+            status: failed ? "failed" : "applied",
             packages: null,
-            changes: r.exitCode === 0 ? ["system upgraded"] : [],
+            changes: failed ? [] : ["system upgraded"],
             stdout: r.stdout,
             stderr: r.stderr,
-            error: r.exitCode !== 0
+            error: failed
               ? `apt-get upgrade failed with exit code ${r.exitCode}`
               : null,
             timestamp: new Date().toISOString(),
           });
+          if (failed) {
+            throw new Error(
+              `apt-get upgrade failed with exit code ${r.exitCode}`,
+            );
+          }
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
+          await context.writeResource("state", g.nodeHost, {
             status: "failed",
             packages: null,
             changes: [],
@@ -346,7 +362,7 @@ export const model = {
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },
@@ -365,16 +381,17 @@ export const model = {
             ),
           );
           if (r.exitCode !== 0) {
-            const handle = await context.writeResource("state", g.nodeHost, {
+            const errorMsg = `dpkg-query failed with exit code ${r.exitCode}`;
+            await context.writeResource("state", g.nodeHost, {
               status: "failed",
               packages: null,
               changes: [],
               stdout: r.stdout,
               stderr: r.stderr,
-              error: `dpkg-query failed with exit code ${r.exitCode}`,
+              error: errorMsg,
               timestamp: new Date().toISOString(),
             });
-            return { dataHandles: [handle] };
+            throw new Error(errorMsg);
           }
 
           const packages = r.stdout.trim().split("\n")
@@ -391,7 +408,7 @@ export const model = {
           });
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
+          await context.writeResource("state", g.nodeHost, {
             status: "failed",
             packages: null,
             changes: [],
@@ -400,7 +417,7 @@ export const model = {
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },

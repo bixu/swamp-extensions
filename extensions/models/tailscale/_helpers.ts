@@ -26,17 +26,16 @@ export const TailscaleGlobalArgsSchema = z.object({
     .describe("API base URL"),
 });
 
-// Module-level OAuth token cache
-let oauthTokenCache = {
-  token: "",
-  expiresAt: 0,
-};
+// OAuth token cache keyed by clientId+clientSecret
+const oauthTokenCache = new Map<string, { token: string; expiresAt: number }>();
 
 // Fetch an OAuth access token using client credentials grant
 async function getOAuthToken(globalArgs) {
+  const cacheKey = `${globalArgs.oauthClientId}:${globalArgs.oauthClientSecret}`;
   const now = Date.now();
-  if (oauthTokenCache.token && oauthTokenCache.expiresAt > now + 60_000) {
-    return oauthTokenCache.token;
+  const cached = oauthTokenCache.get(cacheKey);
+  if (cached && cached.expiresAt > now + 60_000) {
+    return cached.token;
   }
 
   const tokenUrl = `${globalArgs.baseUrl}/api/v2/oauth/token`;
@@ -64,12 +63,12 @@ async function getOAuthToken(globalArgs) {
   }
 
   const data = await resp.json();
-  oauthTokenCache = {
+  oauthTokenCache.set(cacheKey, {
     token: data.access_token,
     expiresAt: now + (data.expires_in || 3600) * 1000,
-  };
+  });
 
-  return oauthTokenCache.token;
+  return data.access_token;
 }
 
 // Build authorization headers based on available credentials

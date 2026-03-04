@@ -1,14 +1,12 @@
 import { z } from "npm:zod@4";
-import { exec, getConnection, wrapSudo } from "./_lib/ssh.ts";
+import { exec, getConnection, wrapSudo, writeFileAs } from "./_lib/ssh.ts";
 
 const GlobalArgsSchema = z.object({
-  path: z.string().describe("Path where the symlink should exist"),
+  user: z.string().describe("User whose authorized_keys file to manage"),
+  key: z.string().describe("Full SSH public key line"),
   ensure: z.enum(["present", "absent"]).describe(
-    "Whether symlink should be present or absent",
+    "Whether the key should be present or absent",
   ),
-  target: z.string().optional().describe("Target the symlink should point to"),
-  owner: z.string().optional().describe("Symlink owner"),
-  group: z.string().optional().describe("Symlink group"),
   nodeHost: z.string().describe("Hostname or IP of the remote node"),
   nodeUser: z.string().default("root").describe("SSH username"),
   nodePort: z.number().default(22).describe("SSH port"),
@@ -31,18 +29,20 @@ function sudoOpts(g) {
 }
 
 const StateSchema = z.object({
-  path: z.string().describe("Symlink path"),
+  user: z.string().describe("Target user"),
   ensure: z.string().describe("Desired state (present or absent)"),
   status: z.enum(["compliant", "non_compliant", "applied", "failed"]).describe(
     "Compliance status",
   ),
   current: z.object({
-    exists: z.boolean().describe("Whether something exists at the path"),
-    isLink: z.boolean().describe("Whether the path is a symbolic link"),
-    linkTarget: z.string().nullable().describe("Current symlink target"),
-    owner: z.string().nullable().describe("Current owner"),
-    group: z.string().nullable().describe("Current group"),
-  }).describe("Current symlink state on the remote node"),
+    fileExists: z.boolean().describe(
+      "Whether authorized_keys file exists",
+    ),
+    keyPresent: z.boolean().describe("Whether the key is in the file"),
+    authorizedKeysPath: z.string().nullable().describe(
+      "Path to the authorized_keys file",
+    ),
+  }).describe("Current authorized key state"),
   changes: z.array(z.string()).describe("List of changes detected or applied"),
   error: z.string().nullable().describe("Error message if status is failed"),
   timestamp: z.string().describe("ISO 8601 timestamp"),
@@ -57,82 +57,56 @@ function connect(g) {
   });
 }
 
-async function gather(client, path, g) {
+function keyBody(key: string): string {
+  const parts = key.trim().split(/\s+/);
+  return parts.length >= 2 ? parts[1] : key.trim();
+}
+
+async function gather(client, g) {
   const so = sudoOpts(g);
-  const testResult = await exec(
+  const homeResult = await exec(
     client,
     wrapSudo(
-      `test -L ${JSON.stringify(path)} && echo ISLINK || echo NOTLINK`,
+      `getent passwd ${JSON.stringify(g.user)} | cut -d: -f6`,
       so,
     ),
   );
-  const isLink = testResult.stdout.trim() === "ISLINK";
-
-  if (!isLink) {
-    const existsResult = await exec(
-      client,
-      wrapSudo(
-        `test -e ${JSON.stringify(path)} && echo EXISTS || echo NOTEXISTS`,
-        so,
-      ),
-    );
-    if (existsResult.stdout.trim() === "NOTEXISTS") {
-      return {
-        exists: false,
-        isLink: false,
-        linkTarget: null,
-        owner: null,
-        group: null,
-      };
-    }
-    const statResult = await exec(
-      client,
-      wrapSudo(`stat -c '%U|%G' ${JSON.stringify(path)} 2>/dev/null`, so),
-    );
-    const [owner, group] = statResult.stdout.trim().split("|");
-    return { exists: true, isLink: false, linkTarget: null, owner, group };
+  const home = homeResult.stdout.trim();
+  if (!home) {
+    throw new Error(`User ${g.user} not found`);
   }
 
-  const targetResult = await exec(
+  const akPath = `${home}/.ssh/authorized_keys`;
+  const catResult = await exec(
     client,
-    wrapSudo(`readlink ${JSON.stringify(path)}`, so),
+    wrapSudo(`cat ${JSON.stringify(akPath)} 2>/dev/null`, so),
   );
-  const linkTarget = targetResult.stdout.trim();
+  const fileExists = catResult.exitCode === 0;
+  const body = keyBody(g.key);
+  const keyPresent = fileExists &&
+    catResult.stdout.split("\n").some((line) => line.includes(body));
 
-  const statResult = await exec(
-    client,
-    wrapSudo(`stat -c '%U|%G' ${JSON.stringify(path)} 2>/dev/null`, so),
-  );
-  const [owner, group] = statResult.stdout.trim().split("|");
-
-  return { exists: true, isLink: true, linkTarget, owner, group };
+  return { fileExists, keyPresent, authorizedKeysPath: akPath };
 }
 
 function detectChanges(g, current) {
-  const changes = [];
-  if (g.ensure === "present") {
-    if (!current.exists) {
-      changes.push("create symlink");
-    } else if (!current.isLink) {
-      changes.push("path exists but is not a symlink");
-    } else if (g.target && current.linkTarget !== g.target) {
-      changes.push(`target: ${current.linkTarget} -> ${g.target}`);
-    }
-    if (g.owner && current.owner !== g.owner) {
-      changes.push(`owner: ${current.owner} -> ${g.owner}`);
-    }
-    if (g.group && current.group !== g.group) {
-      changes.push(`group: ${current.group} -> ${g.group}`);
-    }
-  } else {
-    if (current.exists) changes.push("remove symlink");
+  const changes: string[] = [];
+  if (g.ensure === "present" && !current.keyPresent) {
+    changes.push("add key");
+  }
+  if (g.ensure === "absent" && current.keyPresent) {
+    changes.push("remove key");
   }
   return changes;
 }
 
+function emptyCurrent() {
+  return { fileExists: false, keyPresent: false, authorizedKeysPath: null };
+}
+
 export const model = {
-  type: "@adam/cfgmgmt/link",
-  version: "2026.03.02.1",
+  type: "@adam/cfgmgmt/authorized_key",
+  version: "2026.03.03.1",
   globalArguments: GlobalArgsSchema,
   inputsSchema: z.object({
     nodeHost: z.string().optional().describe(
@@ -155,16 +129,17 @@ export const model = {
   },
   methods: {
     check: {
-      description: "Check if symlink matches desired state (dry-run)",
+      description:
+        "Check if SSH authorized key matches desired state (dry-run)",
       arguments: z.object({}),
       execute: async (_args, context) => {
         const g = context.globalArgs;
         try {
           const client = await connect(g);
-          const current = await gather(client, g.path, g);
+          const current = await gather(client, g);
           const changes = detectChanges(g, current);
           const handle = await context.writeResource("state", g.nodeHost, {
-            path: g.path,
+            user: g.user,
             ensure: g.ensure,
             status: changes.length === 0 ? "compliant" : "non_compliant",
             current,
@@ -174,38 +149,33 @@ export const model = {
           });
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
-            path: g.path,
+          await context.writeResource("state", g.nodeHost, {
+            user: g.user,
             ensure: g.ensure,
             status: "failed",
-            current: {
-              exists: false,
-              isLink: false,
-              linkTarget: null,
-              owner: null,
-              group: null,
-            },
+            current: emptyCurrent(),
             changes: [],
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },
     apply: {
-      description: "Apply desired symlink state to the remote node",
+      description:
+        "Add or remove an SSH public key from a user's authorized_keys",
       arguments: z.object({}),
       execute: async (_args, context) => {
         const g = context.globalArgs;
         try {
           const client = await connect(g);
-          const current = await gather(client, g.path, g);
+          const current = await gather(client, g);
           const changes = detectChanges(g, current);
 
           if (changes.length === 0) {
             const handle = await context.writeResource("state", g.nodeHost, {
-              path: g.path,
+              user: g.user,
               ensure: g.ensure,
               status: "compliant",
               current,
@@ -217,35 +187,58 @@ export const model = {
           }
 
           const so = sudoOpts(g);
-          if (g.ensure === "absent") {
-            await exec(client, wrapSudo(`rm -f ${JSON.stringify(g.path)}`, so));
-          } else {
+          const akPath = current.authorizedKeysPath!;
+          const sshDir = akPath.substring(0, akPath.lastIndexOf("/"));
+
+          if (g.ensure === "present") {
             await exec(
               client,
               wrapSudo(
-                `ln -sfn ${JSON.stringify(g.target)} ${JSON.stringify(g.path)}`,
+                `mkdir -p ${JSON.stringify(sshDir)} && chmod 700 ${
+                  JSON.stringify(sshDir)
+                }`,
                 so,
               ),
             );
-            if (g.owner || g.group) {
-              const ownership = g.group
-                ? `${g.owner || ""}:${g.group}`
-                : g.owner;
-              await exec(
+            let content = "";
+            if (current.fileExists) {
+              const existing = await exec(
                 client,
-                wrapSudo(
-                  `chown -h ${JSON.stringify(ownership)} ${
-                    JSON.stringify(g.path)
-                  }`,
-                  so,
-                ),
+                wrapSudo(`cat ${JSON.stringify(akPath)}`, so),
               );
+              content = existing.stdout;
+              if (content && !content.endsWith("\n")) content += "\n";
             }
+            content += g.key.trim() + "\n";
+            await writeFileAs(client, akPath, content, so);
+            await exec(
+              client,
+              wrapSudo(`chmod 600 ${JSON.stringify(akPath)}`, so),
+            );
+            await exec(
+              client,
+              wrapSudo(
+                `chown ${JSON.stringify(g.user + ":" + g.user)} ${
+                  JSON.stringify(sshDir)
+                } ${JSON.stringify(akPath)}`,
+                so,
+              ),
+            );
+          } else {
+            const body = keyBody(g.key);
+            const existing = await exec(
+              client,
+              wrapSudo(`cat ${JSON.stringify(akPath)}`, so),
+            );
+            const filtered = existing.stdout.split("\n")
+              .filter((line) => !line.includes(body))
+              .join("\n");
+            await writeFileAs(client, akPath, filtered, so);
           }
 
-          const updated = await gather(client, g.path, g);
+          const updated = await gather(client, g);
           const handle = await context.writeResource("state", g.nodeHost, {
-            path: g.path,
+            user: g.user,
             ensure: g.ensure,
             status: "applied",
             current: updated,
@@ -255,22 +248,16 @@ export const model = {
           });
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
-            path: g.path,
+          await context.writeResource("state", g.nodeHost, {
+            user: g.user,
             ensure: g.ensure,
             status: "failed",
-            current: {
-              exists: false,
-              isLink: false,
-              linkTarget: null,
-              owner: null,
-              group: null,
-            },
+            current: emptyCurrent(),
             changes: [],
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },

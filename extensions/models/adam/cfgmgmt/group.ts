@@ -2,15 +2,13 @@ import { z } from "npm:zod@4";
 import { exec, getConnection, wrapSudo } from "./_lib/ssh.ts";
 
 const GlobalArgsSchema = z.object({
-  path: z.string().describe("Absolute path of the directory"),
+  groupname: z.string().describe("Group name to manage"),
   ensure: z.enum(["present", "absent"]).describe(
-    "Whether directory should be present or absent",
+    "Whether group should be present or absent",
   ),
-  owner: z.string().optional().describe("Directory owner"),
-  group: z.string().optional().describe("Directory group"),
-  mode: z.string().optional().describe(
-    "Directory permissions in octal (e.g. 0755)",
-  ),
+  gid: z.number().optional().describe("Desired GID"),
+  members: z.array(z.string()).optional().describe("Group members"),
+  system: z.boolean().optional().describe("Create as system group"),
   nodeHost: z.string().describe("Hostname or IP of the remote node"),
   nodeUser: z.string().default("root").describe("SSH username"),
   nodePort: z.number().default(22).describe("SSH port"),
@@ -33,18 +31,16 @@ function sudoOpts(g) {
 }
 
 const StateSchema = z.object({
-  path: z.string().describe("Directory path"),
+  groupname: z.string().describe("Group name"),
   ensure: z.string().describe("Desired state (present or absent)"),
   status: z.enum(["compliant", "non_compliant", "applied", "failed"]).describe(
     "Compliance status",
   ),
   current: z.object({
-    exists: z.boolean().describe("Whether the directory currently exists"),
-    isDirectory: z.boolean().describe("Whether the path is a directory"),
-    owner: z.string().nullable().describe("Current owner"),
-    group: z.string().nullable().describe("Current group"),
-    mode: z.string().nullable().describe("Current permissions"),
-  }).describe("Current directory state on the remote node"),
+    exists: z.boolean().describe("Whether the group currently exists"),
+    gid: z.number().nullable().describe("Current GID"),
+    members: z.array(z.string()).describe("Current group members"),
+  }).describe("Current group state on the remote node"),
   changes: z.array(z.string()).describe("List of changes detected or applied"),
   error: z.string().nullable().describe("Error message if status is failed"),
   timestamp: z.string().describe("ISO 8601 timestamp"),
@@ -59,63 +55,63 @@ function connect(g) {
   });
 }
 
-async function gather(client, path, g) {
+async function gather(client, groupname, g) {
   const so = sudoOpts(g);
-  const statResult = await exec(
+  const result = await exec(
     client,
     wrapSudo(
-      `stat -c '%F|%U|%G|%a' ${
-        JSON.stringify(path)
+      `getent group ${
+        JSON.stringify(groupname)
       } 2>/dev/null || echo 'NOTFOUND'`,
       so,
     ),
   );
-  const line = statResult.stdout.trim();
-  if (line === "NOTFOUND") {
+  const line = result.stdout.trim();
+  if (line === "NOTFOUND" || !line) {
     return {
       exists: false,
-      isDirectory: false,
-      owner: null,
-      group: null,
-      mode: null,
+      gid: null,
+      members: [] as string[],
     };
   }
-  const [fileType, owner, group, mode] = line.split("|");
-  return {
-    exists: true,
-    isDirectory: fileType === "directory",
-    owner,
-    group,
-    mode: `0${mode}`,
-  };
+  const parts = line.split(":");
+  const gid = parseInt(parts[2], 10);
+  const members = parts[3] ? parts[3].split(",").filter((m) => m).sort() : [];
+  return { exists: true, gid, members };
 }
 
 function detectChanges(g, current) {
-  const changes = [];
+  const changes: string[] = [];
   if (g.ensure === "present") {
     if (!current.exists) {
-      changes.push("create directory");
-    } else if (!current.isDirectory) {
-      changes.push("path exists but is not a directory");
-    }
-    if (g.owner && current.owner !== g.owner) {
-      changes.push(`owner: ${current.owner} -> ${g.owner}`);
-    }
-    if (g.group && current.group !== g.group) {
-      changes.push(`group: ${current.group} -> ${g.group}`);
-    }
-    if (g.mode && current.mode !== g.mode) {
-      changes.push(`mode: ${current.mode} -> ${g.mode}`);
+      changes.push("create group");
+    } else {
+      if (g.gid !== undefined && current.gid !== g.gid) {
+        changes.push(`gid: ${current.gid} -> ${g.gid}`);
+      }
+      if (g.members !== undefined) {
+        const desired = [...g.members].sort();
+        const have = [...current.members].sort();
+        if (JSON.stringify(desired) !== JSON.stringify(have)) {
+          changes.push(
+            `members: [${have.join(",")}] -> [${desired.join(",")}]`,
+          );
+        }
+      }
     }
   } else {
-    if (current.exists) changes.push("remove directory");
+    if (current.exists) changes.push("remove group");
   }
   return changes;
 }
 
+function emptyCurrent() {
+  return { exists: false, gid: null, members: [] as string[] };
+}
+
 export const model = {
-  type: "@adam/cfgmgmt/directory",
-  version: "2026.03.02.1",
+  type: "@adam/cfgmgmt/group",
+  version: "2026.03.03.1",
   globalArguments: GlobalArgsSchema,
   inputsSchema: z.object({
     nodeHost: z.string().optional().describe(
@@ -138,16 +134,16 @@ export const model = {
   },
   methods: {
     check: {
-      description: "Check if directory matches desired state (dry-run)",
+      description: "Check if group matches desired state (dry-run)",
       arguments: z.object({}),
       execute: async (_args, context) => {
         const g = context.globalArgs;
         try {
           const client = await connect(g);
-          const current = await gather(client, g.path, g);
+          const current = await gather(client, g.groupname, g);
           const changes = detectChanges(g, current);
           const handle = await context.writeResource("state", g.nodeHost, {
-            path: g.path,
+            groupname: g.groupname,
             ensure: g.ensure,
             status: changes.length === 0 ? "compliant" : "non_compliant",
             current,
@@ -157,38 +153,32 @@ export const model = {
           });
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
-            path: g.path,
+          await context.writeResource("state", g.nodeHost, {
+            groupname: g.groupname,
             ensure: g.ensure,
             status: "failed",
-            current: {
-              exists: false,
-              isDirectory: false,
-              owner: null,
-              group: null,
-              mode: null,
-            },
+            current: emptyCurrent(),
             changes: [],
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },
     apply: {
-      description: "Apply desired directory state to the remote node",
+      description: "Create, modify, or remove a system group",
       arguments: z.object({}),
       execute: async (_args, context) => {
         const g = context.globalArgs;
         try {
           const client = await connect(g);
-          const current = await gather(client, g.path, g);
+          const current = await gather(client, g.groupname, g);
           const changes = detectChanges(g, current);
 
           if (changes.length === 0) {
             const handle = await context.writeResource("state", g.nodeHost, {
-              path: g.path,
+              groupname: g.groupname,
               ensure: g.ensure,
               status: "compliant",
               current,
@@ -200,41 +190,82 @@ export const model = {
           }
 
           const so = sudoOpts(g);
+
           if (g.ensure === "absent") {
-            await exec(
+            const result = await exec(
               client,
-              wrapSudo(`rm -rf ${JSON.stringify(g.path)}`, so),
+              wrapSudo(`groupdel ${JSON.stringify(g.groupname)}`, so),
             );
-          } else {
-            await exec(
+            if (result.exitCode !== 0) {
+              throw new Error(`groupdel failed: ${result.stderr}`);
+            }
+          } else if (!current.exists) {
+            const args: string[] = [];
+            if (g.gid !== undefined) args.push("-g", String(g.gid));
+            if (g.system) args.push("-r");
+            args.push(g.groupname);
+            const result = await exec(
               client,
-              wrapSudo(`mkdir -p ${JSON.stringify(g.path)}`, so),
+              wrapSudo(`groupadd ${args.join(" ")}`, so),
             );
-            if (g.owner || g.group) {
-              const ownership = g.group
-                ? `${g.owner || ""}:${g.group}`
-                : g.owner;
-              await exec(
+            if (result.exitCode !== 0) {
+              throw new Error(`groupadd failed: ${result.stderr}`);
+            }
+            if (g.members !== undefined && g.members.length > 0) {
+              const memberResult = await exec(
                 client,
                 wrapSudo(
-                  `chown ${JSON.stringify(ownership)} ${
-                    JSON.stringify(g.path)
+                  `gpasswd -M ${g.members.join(",")} ${
+                    JSON.stringify(g.groupname)
                   }`,
                   so,
                 ),
               );
+              if (memberResult.exitCode !== 0) {
+                throw new Error(
+                  `gpasswd -M failed: ${memberResult.stderr}`,
+                );
+              }
             }
-            if (g.mode) {
-              await exec(
+          } else {
+            if (g.gid !== undefined && current.gid !== g.gid) {
+              const result = await exec(
                 client,
-                wrapSudo(`chmod ${g.mode} ${JSON.stringify(g.path)}`, so),
+                wrapSudo(
+                  `groupmod -g ${g.gid} ${JSON.stringify(g.groupname)}`,
+                  so,
+                ),
               );
+              if (result.exitCode !== 0) {
+                throw new Error(`groupmod failed: ${result.stderr}`);
+              }
+            }
+            if (g.members !== undefined) {
+              const desired = [...g.members].sort();
+              const have = [...current.members].sort();
+              if (JSON.stringify(desired) !== JSON.stringify(have)) {
+                const memberList = g.members.join(",");
+                const result = await exec(
+                  client,
+                  wrapSudo(
+                    `gpasswd -M ${memberList || '""'} ${
+                      JSON.stringify(g.groupname)
+                    }`,
+                    so,
+                  ),
+                );
+                if (result.exitCode !== 0) {
+                  throw new Error(
+                    `gpasswd -M failed: ${result.stderr}`,
+                  );
+                }
+              }
             }
           }
 
-          const updated = await gather(client, g.path, g);
+          const updated = await gather(client, g.groupname, g);
           const handle = await context.writeResource("state", g.nodeHost, {
-            path: g.path,
+            groupname: g.groupname,
             ensure: g.ensure,
             status: "applied",
             current: updated,
@@ -244,22 +275,16 @@ export const model = {
           });
           return { dataHandles: [handle] };
         } catch (err) {
-          const handle = await context.writeResource("state", g.nodeHost, {
-            path: g.path,
+          await context.writeResource("state", g.nodeHost, {
+            groupname: g.groupname,
             ensure: g.ensure,
             status: "failed",
-            current: {
-              exists: false,
-              isDirectory: false,
-              owner: null,
-              group: null,
-              mode: null,
-            },
+            current: emptyCurrent(),
             changes: [],
             error: err.message,
             timestamp: new Date().toISOString(),
           });
-          return { dataHandles: [handle] };
+          throw err;
         }
       },
     },
