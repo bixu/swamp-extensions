@@ -9,3 +9,7 @@
 .swamp/workflow-runs/
 .DS_Store
 *.csv
+
+# macOS iCloud/Finder conflict duplicates (e.g. "file 2.yaml", "file 3")
+* [0-9]
+* [0-9].*
