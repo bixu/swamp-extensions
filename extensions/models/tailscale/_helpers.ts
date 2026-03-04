@@ -31,7 +31,8 @@ const oauthTokenCache = new Map<string, { token: string; expiresAt: number }>();
 
 // Fetch an OAuth access token using client credentials grant
 async function getOAuthToken(globalArgs) {
-  const cacheKey = `${globalArgs.oauthClientId}:${globalArgs.oauthClientSecret}`;
+  const cacheKey =
+    `${globalArgs.oauthClientId}:${globalArgs.oauthClientSecret}`;
   const now = Date.now();
   const cached = oauthTokenCache.get(cacheKey);
   if (cached && cached.expiresAt > now + 60_000) {
