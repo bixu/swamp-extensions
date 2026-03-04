@@ -1,8 +1,8 @@
 import { z } from "npm:zod@4";
 import {
+  sanitizeInstanceName,
   TailscaleGlobalArgsSchema,
   tsApi,
-  sanitizeInstanceName,
 } from "./_helpers.ts";
 
 const KeySchema = z
