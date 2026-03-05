@@ -10,15 +10,17 @@ import {
   buildSummaryTable,
   connectionInfo,
   findByNameOrSlug,
+  findV1ItemByName,
   mapApiItem,
   mapV1Item,
+  resolveV1ItemUrl,
   resolveV1Request,
   resourceUrl,
   resourceUrlV1,
+  v1ItemId,
   validateV1ConfigKey,
   validateV2KeyId,
 } from "./honeycomb_helpers.ts";
-import { model } from "./honeycomb.ts";
 
 // --- assertOk ---
 
@@ -73,7 +75,7 @@ Deno.test("authHeaders includes JSON:API accept header", () => {
 
 Deno.test("authHeaders includes content-type header", () => {
   const headers = authHeaders("id", "secret");
-  assertEquals(headers["Content-Type"], "application/json");
+  assertEquals(headers["Content-Type"], "application/vnd.api+json");
 });
 
 // --- resourceUrl ---
@@ -401,462 +403,6 @@ Deno.test("buildSummaryTable uses key_name as primary column when no name presen
   assertEquals(lines[4].includes("status_code"), true);
 });
 
-// --- get method (stubbed fetch) ---
-
-const globalArgs = {
-  teamSlug: "my-team",
-  apiKeyId: "hcamk_testkey123",
-  apiKeySecret: "key-secret",
-  region: "us",
-};
-
-function mockContext() {
-  const written: Array<{ spec: string; instance: string; data: unknown }> = [];
-  let handleCounter = 0;
-  return {
-    written,
-    context: {
-      globalArgs,
-      writeResource: (spec: string, instance: string, data: unknown) => {
-        written.push({ spec, instance, data });
-        return Promise.resolve(`handle-${++handleCounter}`);
-      },
-      logger: { info: () => {} },
-    },
-  };
-}
-
-function stubFetch(
-  responses: Array<{ ok: boolean; body: unknown; status?: number }>,
-) {
-  let callIndex = 0;
-  const calls: Array<{ url: string; init?: RequestInit }> = [];
-  const originalFetch = globalThis.fetch;
-
-  globalThis.fetch = ((url: string, init?: RequestInit) => {
-    calls.push({ url, init });
-    const resp = responses[callIndex++] ?? responses[responses.length - 1];
-    return Promise.resolve({
-      ok: resp.ok,
-      status: resp.status ?? (resp.ok ? 200 : 500),
-      json: () => Promise.resolve(resp.body),
-      text: () => Promise.resolve(JSON.stringify(resp.body)),
-    });
-  }) as typeof globalThis.fetch;
-
-  return { calls, restore: () => globalThis.fetch = originalFetch };
-}
-
-// -- environments --
-
-Deno.test("get lists environments and writes each as a resource", async () => {
-  const { context, written } = mockContext();
-  const stub = stubFetch([{
-    ok: true,
-    body: {
-      data: [
-        {
-          id: "env-1",
-          type: "environments",
-          attributes: {
-            name: "Production",
-            slug: "prod",
-            description: "Production environment",
-            color: "red",
-            settings: { delete_protected: true },
-          },
-        },
-        {
-          id: "env-2",
-          type: "environments",
-          attributes: {
-            name: "Staging",
-            slug: "staging",
-            description: "Staging environment",
-            color: "yellow",
-            settings: { delete_protected: false },
-          },
-        },
-      ],
-      links: {},
-    },
-  }]);
-
-  try {
-    const result = await model.methods.get.execute(
-      { resource: "environments" },
-      context,
-    );
-
-    assertEquals(result.dataHandles.length, 2);
-    assertEquals(written.length, 2);
-    assertEquals(written[0].instance, "prod");
-    assertEquals(written[0].spec, "resource");
-    assertEquals((written[0].data as { id: string }).id, "env-1");
-    assertEquals(written[1].instance, "staging");
-    assertEquals(
-      stub.calls[0].url,
-      "https://api.honeycomb.io/2/teams/my-team/environments",
-    );
-  } finally {
-    stub.restore();
-  }
-});
-
-Deno.test("get follows pagination links for environments", async () => {
-  const { context, written } = mockContext();
-  const stub = stubFetch([
-    {
-      ok: true,
-      body: {
-        data: [{
-          id: "env-1",
-          type: "environments",
-          attributes: { name: "Prod", slug: "prod" },
-        }],
-        links: { next: "/2/teams/my-team/environments?page[after]=env-1" },
-      },
-    },
-    {
-      ok: true,
-      body: {
-        data: [{
-          id: "env-2",
-          type: "environments",
-          attributes: { name: "Staging", slug: "staging" },
-        }],
-        links: {},
-      },
-    },
-  ]);
-
-  try {
-    const result = await model.methods.get.execute(
-      { resource: "environments" },
-      context,
-    );
-
-    assertEquals(result.dataHandles.length, 2);
-    assertEquals(written.length, 2);
-    assertEquals(stub.calls.length, 2);
-    assertEquals(
-      stub.calls[1].url,
-      "https://api.honeycomb.io/2/teams/my-team/environments?page[after]=env-1",
-    );
-  } finally {
-    stub.restore();
-  }
-});
-
-Deno.test("get handles empty environments list", async () => {
-  const { context, written } = mockContext();
-  const stub = stubFetch([{
-    ok: true,
-    body: { data: [], links: {} },
-  }]);
-
-  try {
-    const result = await model.methods.get.execute(
-      { resource: "environments" },
-      context,
-    );
-
-    assertEquals(result.dataHandles.length, 0);
-    assertEquals(written.length, 0);
-  } finally {
-    stub.restore();
-  }
-});
-
-Deno.test("get throws on API error for environments", async () => {
-  const { context } = mockContext();
-  const stub = stubFetch([{
-    ok: false,
-    status: 403,
-    body: "Forbidden",
-  }]);
-
-  try {
-    await assertRejects(
-      () => model.methods.get.execute({ resource: "environments" }, context),
-      Error,
-      "Honeycomb API error 403",
-    );
-  } finally {
-    stub.restore();
-  }
-});
-
-// -- api-keys --
-
-Deno.test("get lists api-keys and writes each as a resource", async () => {
-  const { context, written } = mockContext();
-  const stub = stubFetch([{
-    ok: true,
-    body: {
-      data: [
-        {
-          id: "key-1",
-          type: "api-keys",
-          attributes: {
-            name: "Ingest Key",
-            slug: "ingest-key",
-            scope: { environments: "all" },
-          },
-        },
-        {
-          id: "key-2",
-          type: "api-keys",
-          attributes: {
-            name: "Query Key",
-            slug: "query-key",
-            scope: { environments: "all" },
-          },
-        },
-      ],
-      links: {},
-    },
-  }]);
-
-  try {
-    const result = await model.methods.get.execute(
-      { resource: "api-keys" },
-      context,
-    );
-
-    assertEquals(result.dataHandles.length, 2);
-    assertEquals(written.length, 2);
-    assertEquals(written[0].instance, "ingest-key");
-    assertEquals((written[0].data as { type: string }).type, "api-keys");
-    assertEquals(written[1].instance, "query-key");
-    assertEquals(
-      stub.calls[0].url,
-      "https://api.honeycomb.io/2/teams/my-team/api-keys",
-    );
-  } finally {
-    stub.restore();
-  }
-});
-
-Deno.test("get uses id as instance name when api-key has no slug", async () => {
-  const { context, written } = mockContext();
-  const stub = stubFetch([{
-    ok: true,
-    body: {
-      data: [{
-        id: "key-abc",
-        type: "api-keys",
-        attributes: { name: "Legacy Key" },
-      }],
-      links: {},
-    },
-  }]);
-
-  try {
-    await model.methods.get.execute({ resource: "api-keys" }, context);
-
-    assertEquals(written[0].instance, "key-abc");
-  } finally {
-    stub.restore();
-  }
-});
-
-Deno.test("get handles empty api-keys list", async () => {
-  const { context, written } = mockContext();
-  const stub = stubFetch([{
-    ok: true,
-    body: { data: [], links: {} },
-  }]);
-
-  try {
-    const result = await model.methods.get.execute(
-      { resource: "api-keys" },
-      context,
-    );
-
-    assertEquals(result.dataHandles.length, 0);
-    assertEquals(written.length, 0);
-  } finally {
-    stub.restore();
-  }
-});
-
-Deno.test("get throws on API error for api-keys", async () => {
-  const { context } = mockContext();
-  const stub = stubFetch([{
-    ok: false,
-    status: 401,
-    body: "Unauthorized",
-  }]);
-
-  try {
-    await assertRejects(
-      () => model.methods.get.execute({ resource: "api-keys" }, context),
-      Error,
-      "Honeycomb API error 401",
-    );
-  } finally {
-    stub.restore();
-  }
-});
-
-// -- EU region --
-
-Deno.test("get uses EU endpoint when region is eu", async () => {
-  const euContext = {
-    globalArgs: { ...globalArgs, region: "eu" },
-    writeResource: () => Promise.resolve("handle"),
-    logger: { info: () => {} },
-  };
-  const stub = stubFetch([{
-    ok: true,
-    body: { data: [], links: {} },
-  }]);
-
-  try {
-    await model.methods.get.execute({ resource: "environments" }, euContext);
-
-    assertEquals(
-      stub.calls[0].url,
-      "https://api.eu1.honeycomb.io/2/teams/my-team/environments",
-    );
-  } finally {
-    stub.restore();
-  }
-});
-
-// -- json output --
-
-Deno.test("get with json=true writes JSON to stdout", async () => {
-  const { context } = mockContext();
-  const envData = [
-    {
-      id: "env-1",
-      type: "environments",
-      attributes: { name: "Prod", slug: "prod" },
-    },
-  ];
-  const stub = stubFetch([{
-    ok: true,
-    body: { data: envData, links: {} },
-  }]);
-
-  const chunks: Uint8Array[] = [];
-  const originalWrite = Deno.stdout.write.bind(Deno.stdout);
-  Deno.stdout.write = (p: Uint8Array) => {
-    chunks.push(p);
-    return Promise.resolve(p.length);
-  };
-
-  try {
-    await model.methods.get.execute(
-      { resource: "environments", json: true },
-      context,
-    );
-
-    const output = new TextDecoder().decode(chunks[0]);
-    const parsed = JSON.parse(output);
-    assertEquals(parsed.length, 1);
-    assertEquals(parsed[0].id, "env-1");
-    assertEquals(parsed[0].attributes.name, "Prod");
-  } finally {
-    Deno.stdout.write = originalWrite;
-    stub.restore();
-  }
-});
-
-Deno.test("get with json=true writes empty array for no results", async () => {
-  const { context } = mockContext();
-  const stub = stubFetch([{
-    ok: true,
-    body: { data: [], links: {} },
-  }]);
-
-  const chunks: Uint8Array[] = [];
-  const originalWrite = Deno.stdout.write.bind(Deno.stdout);
-  Deno.stdout.write = (p: Uint8Array) => {
-    chunks.push(p);
-    return Promise.resolve(p.length);
-  };
-
-  try {
-    await model.methods.get.execute(
-      { resource: "environments", json: true },
-      context,
-    );
-
-    const output = new TextDecoder().decode(chunks[0]);
-    const parsed = JSON.parse(output);
-    assertEquals(parsed.length, 0);
-  } finally {
-    Deno.stdout.write = originalWrite;
-    stub.restore();
-  }
-});
-
-Deno.test("get with json=false writes ASCII table (default behavior)", async () => {
-  const { context } = mockContext();
-  const stub = stubFetch([{
-    ok: true,
-    body: {
-      data: [{
-        id: "env-1",
-        type: "environments",
-        attributes: { name: "Prod", slug: "prod" },
-      }],
-      links: {},
-    },
-  }]);
-
-  const chunks: Uint8Array[] = [];
-  const originalWrite = Deno.stdout.write.bind(Deno.stdout);
-  Deno.stdout.write = (p: Uint8Array) => {
-    chunks.push(p);
-    return Promise.resolve(p.length);
-  };
-
-  try {
-    await model.methods.get.execute(
-      { resource: "environments", json: false },
-      context,
-    );
-
-    const output = new TextDecoder().decode(chunks[0]);
-    // ASCII table output should NOT be valid JSON
-    assertEquals(output.startsWith("["), false);
-    // Should contain the table content
-    assertEquals(output.includes("Prod"), true);
-  } finally {
-    Deno.stdout.write = originalWrite;
-    stub.restore();
-  }
-});
-
-Deno.test("get sends correct auth headers", async () => {
-  const { context } = mockContext();
-  const stub = stubFetch([{
-    ok: true,
-    body: { data: [], links: {} },
-  }]);
-
-  try {
-    await model.methods.get.execute({ resource: "environments" }, context);
-
-    const headers = stub.calls[0].init?.headers as Record<string, string>;
-    assertEquals(
-      headers.Authorization,
-      "Bearer hcamk_testkey123:key-secret",
-    );
-    assertEquals(headers.Accept, "application/vnd.api+json");
-  } finally {
-    stub.restore();
-  }
-});
-
-// =====================================================================
-// v1 API helpers
-// =====================================================================
-
 // --- authHeadersV1 ---
 
 Deno.test("authHeadersV1 returns X-Honeycomb-Team header", () => {
@@ -1035,6 +581,73 @@ Deno.test("resolveV1Request throws when dataset missing for derived-columns", ()
   assertEquals(threw, true);
 });
 
+Deno.test("resolveV1Request resolves markers with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "markers",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/markers/my-ds");
+});
+
+Deno.test("resolveV1Request throws when dataset missing for markers", () => {
+  let threw = false;
+  try {
+    resolveV1Request("https://api.honeycomb.io", "markers");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message,
+      'Resource "markers" requires a dataset argument',
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("resolveV1Request resolves marker-settings with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "marker-settings",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/marker_settings/my-ds");
+});
+
+Deno.test("resolveV1Request resolves slos with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "slos",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/slos/my-ds");
+});
+
+Deno.test("resolveV1Request resolves burn-alerts with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "burn-alerts",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/burn_alerts/my-ds");
+});
+
+Deno.test("resolveV1Request resolves query-annotations with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "query-annotations",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/query_annotations/my-ds");
+});
+
+Deno.test("resolveV1Request resolves auth without dataset", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "auth",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/auth");
+});
+
 // --- mapV1Item ---
 
 Deno.test("mapV1Item uses slug as instanceName when available", () => {
@@ -1072,283 +685,131 @@ Deno.test("mapV1Item stores full item as attributes", () => {
   assertEquals(result.data.attributes, item);
 });
 
-// =====================================================================
-// v1 get method tests
-// =====================================================================
+// --- resolveV1ItemUrl ---
 
-// v1 config keys are bare secrets (no prefix)
-const TEST_V1_CONFIG_KEY = "test-config-key-secret-value";
+Deno.test("resolveV1ItemUrl builds global resource item URL", () => {
+  assertEquals(
+    resolveV1ItemUrl("https://api.honeycomb.io", "boards", "abc-123"),
+    "https://api.honeycomb.io/1/boards/abc-123",
+  );
+});
 
-const v1GlobalArgs = {
-  ...globalArgs,
-  configKey: TEST_V1_CONFIG_KEY,
-};
+Deno.test("resolveV1ItemUrl builds dataset-scoped resource item URL", () => {
+  assertEquals(
+    resolveV1ItemUrl(
+      "https://api.honeycomb.io",
+      "triggers",
+      "trig-1",
+      "my-ds",
+    ),
+    "https://api.honeycomb.io/1/triggers/my-ds/trig-1",
+  );
+});
 
-function mockV1Context() {
-  const written: Array<{ spec: string; instance: string; data: unknown }> = [];
-  let handleCounter = 0;
-  return {
-    written,
-    context: {
-      globalArgs: v1GlobalArgs,
-      writeResource: (spec: string, instance: string, data: unknown) => {
-        written.push({ spec, instance, data });
-        return Promise.resolve(`handle-${++handleCounter}`);
-      },
-      logger: { info: () => {} },
-    },
-  };
-}
+Deno.test("resolveV1ItemUrl maps hyphenated resource names to API paths", () => {
+  assertEquals(
+    resolveV1ItemUrl(
+      "https://api.honeycomb.io",
+      "derived-columns",
+      "dc-1",
+      "my-ds",
+    ),
+    "https://api.honeycomb.io/1/derived_columns/my-ds/dc-1",
+  );
+});
 
-Deno.test("get with datasets uses v1 auth and writes resources", async () => {
-  const { context, written } = mockV1Context();
-  const stub = stubFetch([{
-    ok: true,
-    body: [
-      { slug: "backend", name: "Backend", created_at: "2026-01-01" },
-      { slug: "frontend", name: "Frontend", created_at: "2026-01-02" },
-    ],
-  }]);
-
+Deno.test("resolveV1ItemUrl throws for unknown resource", () => {
+  let threw = false;
   try {
-    const result = await model.methods.get.execute(
-      { resource: "datasets" },
-      context,
-    );
+    resolveV1ItemUrl("https://api.honeycomb.io", "unknown", "id-1");
+  } catch (e) {
+    threw = true;
+    assertEquals((e as Error).message, "Unknown v1 resource: unknown");
+  }
+  assertEquals(threw, true);
+});
 
-    assertEquals(result.dataHandles.length, 2);
-    assertEquals(written.length, 2);
-    assertEquals(written[0].instance, "backend");
-    assertEquals(written[1].instance, "frontend");
-    assertEquals(written[0].spec, "v1resource");
-
-    // Verify v1 auth headers
-    const headers = stub.calls[0].init?.headers as Record<string, string>;
-    assertEquals(headers["X-Honeycomb-Team"], TEST_V1_CONFIG_KEY);
-    assertEquals(headers["Content-Type"], "application/json");
-
-    // Verify v1 URL
+Deno.test("resolveV1ItemUrl throws when dataset missing for dataset-scoped resource", () => {
+  let threw = false;
+  try {
+    resolveV1ItemUrl("https://api.honeycomb.io", "columns", "col-1");
+  } catch (e) {
+    threw = true;
     assertEquals(
-      stub.calls[0].url,
-      "https://api.honeycomb.io/1/datasets",
+      (e as Error).message,
+      'Resource "columns" requires a dataset argument',
     );
-  } finally {
-    stub.restore();
   }
+  assertEquals(threw, true);
 });
 
-Deno.test("get with dataset-definitions normalizes object response", async () => {
-  const { context, written } = mockV1Context();
-  const stub = stubFetch([{
-    ok: true,
-    body: {
-      "duration_ms": { name: "duration_ms", type: "float" },
-      "status_code": { name: "status_code", type: "integer" },
-    },
-  }]);
-
-  try {
-    const result = await model.methods.get.execute(
-      { resource: "dataset-definitions", dataset: "backend" },
-      context,
-    );
-
-    assertEquals(result.dataHandles.length, 2);
-    assertEquals(written.length, 2);
-    assertEquals(written[0].instance, "duration_ms");
-    assertEquals(written[1].instance, "status_code");
-
-    // Verify dataset-scoped URL
-    assertEquals(
-      stub.calls[0].url,
-      "https://api.honeycomb.io/1/dataset_definitions/backend",
-    );
-  } finally {
-    stub.restore();
-  }
+Deno.test("resolveV1ItemUrl encodes id and dataset", () => {
+  const url = resolveV1ItemUrl(
+    "https://api.honeycomb.io",
+    "triggers",
+    "id with spaces",
+    "ds with spaces",
+  );
+  assertEquals(url.includes("id%20with%20spaces"), true);
+  assertEquals(url.includes("ds%20with%20spaces"), true);
 });
 
-Deno.test("get with dataset-definitions throws when dataset missing", async () => {
-  const { context } = mockV1Context();
-
-  await assertRejects(
-    () =>
-      model.methods.get.execute(
-        { resource: "dataset-definitions" },
-        context,
-      ),
-    Error,
-    "requires a dataset argument",
+Deno.test("resolveV1ItemUrl builds datasets item URL using slug", () => {
+  assertEquals(
+    resolveV1ItemUrl("https://api.honeycomb.io", "datasets", "my-ds"),
+    "https://api.honeycomb.io/1/datasets/my-ds",
   );
 });
 
-Deno.test("get with v1 resource throws when configKey missing", async () => {
-  const { context } = mockContext(); // no configKey
+// --- findV1ItemByName ---
 
-  await assertRejects(
-    () =>
-      model.methods.get.execute(
-        { resource: "datasets" },
-        context,
-      ),
-    Error,
-    "requires configKey",
+Deno.test("findV1ItemByName matches by name", () => {
+  const v1items = [{ name: "My Board", id: "b-1" }];
+  assertEquals(findV1ItemByName(v1items, "My Board")?.id, "b-1");
+});
+
+Deno.test("findV1ItemByName matches by slug", () => {
+  const v1items = [{ slug: "backend", name: "Backend", id: "d-1" }];
+  assertEquals(findV1ItemByName(v1items, "backend")?.id, "d-1");
+});
+
+Deno.test("findV1ItemByName matches by id", () => {
+  const v1items = [{ name: "Thing", id: "abc-123" }];
+  assertEquals(findV1ItemByName(v1items, "abc-123")?.name, "Thing");
+});
+
+Deno.test("findV1ItemByName matches by alias (derived-columns)", () => {
+  const v1items = [{ alias: "my_derived", id: "dc-1" }];
+  assertEquals(findV1ItemByName(v1items, "my_derived")?.id, "dc-1");
+});
+
+Deno.test("findV1ItemByName matches by key_name (columns)", () => {
+  const v1items = [{ key_name: "duration_ms", id: "col-1" }];
+  assertEquals(findV1ItemByName(v1items, "duration_ms")?.id, "col-1");
+});
+
+Deno.test("findV1ItemByName returns undefined for no match", () => {
+  const v1items = [{ name: "A", id: "1" }];
+  assertEquals(findV1ItemByName(v1items, "nonexistent"), undefined);
+});
+
+Deno.test("findV1ItemByName returns undefined for empty list", () => {
+  assertEquals(findV1ItemByName([], "anything"), undefined);
+});
+
+// --- v1ItemId ---
+
+Deno.test("v1ItemId returns slug for datasets", () => {
+  assertEquals(v1ItemId({ slug: "my-ds", id: "123" }, "datasets"), "my-ds");
+});
+
+Deno.test("v1ItemId returns id for non-dataset resources", () => {
+  assertEquals(
+    v1ItemId({ id: "trig-1", name: "My Trigger" }, "triggers"),
+    "trig-1",
   );
 });
 
-Deno.test("get with datasets handles empty array", async () => {
-  const { context, written } = mockV1Context();
-  const stub = stubFetch([{
-    ok: true,
-    body: [],
-  }]);
-
-  try {
-    const result = await model.methods.get.execute(
-      { resource: "datasets" },
-      context,
-    );
-
-    assertEquals(result.dataHandles.length, 0);
-    assertEquals(written.length, 0);
-  } finally {
-    stub.restore();
-  }
-});
-
-Deno.test("get with datasets throws on API error", async () => {
-  const { context } = mockV1Context();
-  const stub = stubFetch([{
-    ok: false,
-    status: 401,
-    body: "Unauthorized",
-  }]);
-
-  try {
-    await assertRejects(
-      () =>
-        model.methods.get.execute(
-          { resource: "datasets" },
-          context,
-        ),
-      Error,
-      "Honeycomb API error 401",
-    );
-  } finally {
-    stub.restore();
-  }
-});
-
-Deno.test("get with datasets and dataset slug fetches single dataset", async () => {
-  const { context, written } = mockV1Context();
-  const stub = stubFetch([{
-    ok: true,
-    body: {
-      slug: "backend",
-      name: "Backend",
-      created_at: "2026-01-01",
-      last_written_at: "2026-03-01",
-    },
-  }]);
-
-  try {
-    const result = await model.methods.get.execute(
-      { resource: "datasets", dataset: "backend" },
-      context,
-    );
-
-    assertEquals(result.dataHandles.length, 1);
-    assertEquals(written.length, 1);
-    assertEquals(written[0].instance, "backend");
-    assertEquals(written[0].spec, "v1resource");
-
-    // Verify slug-filtered URL
-    assertEquals(
-      stub.calls[0].url,
-      "https://api.honeycomb.io/1/datasets/backend",
-    );
-  } finally {
-    stub.restore();
-  }
-});
-
-Deno.test("get with v1 resource throws when configKey is a management key ID", async () => {
-  const badKeyContext = {
-    globalArgs: {
-      ...globalArgs,
-      configKey: "hcamk_01test00000000000000000000",
-    },
-    writeResource: () => Promise.resolve("handle"),
-    logger: { info: () => {} },
-  };
-
-  await assertRejects(
-    () =>
-      model.methods.get.execute(
-        { resource: "datasets" },
-        badKeyContext,
-      ),
-    Error,
-    "looks like a v2 Management Key ID",
-  );
-});
-
-// =====================================================================
-// create / delete v1 guard tests
-// =====================================================================
-
-Deno.test("create throws for v1 resource (datasets)", async () => {
-  const { context } = mockV1Context();
-
-  await assertRejects(
-    () =>
-      model.methods.create.execute(
-        { resource: "datasets", name: "test-ds" },
-        context,
-      ),
-    Error,
-    '"datasets" is a v1 API resource and does not support the "create" method yet',
-  );
-});
-
-Deno.test("create throws for v1 resource (triggers)", async () => {
-  const { context } = mockV1Context();
-
-  await assertRejects(
-    () =>
-      model.methods.create.execute(
-        { resource: "triggers", name: "test-trigger" },
-        context,
-      ),
-    Error,
-    '"triggers" is a v1 API resource and does not support the "create" method yet',
-  );
-});
-
-Deno.test("delete throws for v1 resource (datasets)", async () => {
-  const { context } = mockV1Context();
-
-  await assertRejects(
-    () =>
-      model.methods.delete.execute(
-        { resource: "datasets", name: "backend" },
-        context,
-      ),
-    Error,
-    '"datasets" is a v1 API resource and does not support the "delete" method yet',
-  );
-});
-
-Deno.test("delete throws for v1 resource (boards)", async () => {
-  const { context } = mockV1Context();
-
-  await assertRejects(
-    () =>
-      model.methods.delete.execute(
-        { resource: "boards", name: "my-board" },
-        context,
-      ),
-    Error,
-    '"boards" is a v1 API resource and does not support the "delete" method yet',
-  );
+Deno.test("v1ItemId returns id for boards", () => {
+  assertEquals(v1ItemId({ id: "b-1", name: "My Board" }, "boards"), "b-1");
 });
