@@ -4,6 +4,7 @@ import {
   getClientForBucket,
   listAllBuckets,
   normalizeObjectMeta,
+  presignUrl,
   resolveBucket,
   resolveKey,
 } from "./s3_helpers.ts";
@@ -467,12 +468,15 @@ export const model = {
       execute: async (args: any, context: any) => {
         const ga = context.globalArgs;
         const bucket = resolveBucket(args.bucket, ga.bucket);
-        const client = await clientForMethod(ga, bucket);
         const key = resolveKey(args.key, ga.prefix);
 
-        const url = await client.getPresignedUrl(args.method, key, {
-          expirySeconds: args.expiresIn,
-        });
+        const url = await presignUrl(
+          ga,
+          bucket,
+          key,
+          args.method,
+          args.expiresIn,
+        );
 
         context.logger.info(
           `Pre-signed ${args.method} URL for s3://${bucket}/${key}`,
