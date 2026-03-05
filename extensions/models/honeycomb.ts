@@ -6,11 +6,14 @@ import {
   buildSummaryTable,
   connectionInfo,
   findByNameOrSlug,
+  findV1ItemByName,
   mapApiItem,
   mapV1Item,
+  resolveV1ItemUrl,
   resolveV1Request,
   resourceUrl,
   V1_RESOURCE_REGISTRY,
+  v1ItemId,
   validateV1ConfigKey,
 } from "./honeycomb_helpers.ts";
 
@@ -193,29 +196,203 @@ export const model = {
       description: "Create a new resource of a given type",
       arguments: ResourceArg.extend({
         name: z.string().describe("Name of the resource to create"),
+        body: z.string().optional().describe(
+          "JSON object with resource attributes (overrides name for v1 resources)",
+        ),
       }),
       execute: async (args, context) => {
-        if (args.resource in V1_RESOURCE_REGISTRY) {
-          throw new Error(
-            `"${args.resource}" is a v1 API resource and does not support the "create" method yet`,
+        const isV1 = args.resource in V1_RESOURCE_REGISTRY;
+
+        if (isV1) {
+          const entry = V1_RESOURCE_REGISTRY[args.resource];
+          if (entry.readOnly) {
+            throw new Error(
+              `"${args.resource}" is a read-only v1 resource`,
+            );
+          }
+
+          const configKey = context.globalArgs.configKey;
+          if (!configKey) {
+            throw new Error(
+              `v1 resource "${args.resource}" requires configKey in globalArguments`,
+            );
+          }
+
+          const trimmedKey = String(configKey).trim();
+          validateV1ConfigKey(trimmedKey);
+
+          const base = baseUrl(context.globalArgs.region);
+          const createDataset = entry.datasetScoped ? args.dataset : undefined;
+          const url = resolveV1Request(base, args.resource, createDataset);
+          const headers = authHeadersV1(trimmedKey);
+
+          const payload = args.body
+            ? JSON.parse(args.body)
+            : { name: args.name };
+          const resp = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(payload),
+          });
+          await assertOk(resp);
+
+          const json = await resp.json();
+          const mapped = mapV1Item(json, args.resource, 0);
+
+          const handle = await context.writeResource(
+            "v1resource",
+            mapped.instanceName,
+            mapped.data,
           );
+
+          return { dataHandles: [handle] };
         }
 
+        // v2 path
         const { teamSlug, base, headers } = connectionInfo(
           context.globalArgs,
         );
         const collectionUrl = resourceUrl(base, teamSlug, args.resource);
 
+        const attributes = args.body
+          ? JSON.parse(args.body)
+          : { name: args.name };
         const resp = await fetch(collectionUrl, {
           method: "POST",
           headers,
           body: JSON.stringify({
             data: {
               type: args.resource,
-              attributes: { name: args.name },
+              attributes,
             },
           }),
         });
+        await assertOk(resp);
+
+        const json = await resp.json();
+        const mapped = mapApiItem(json.data, args.resource);
+
+        const handle = await context.writeResource(
+          "resource",
+          mapped.instanceName,
+          mapped.data,
+        );
+
+        return { dataHandles: [handle] };
+      },
+    },
+    update: {
+      description: "Update a resource by name or slug",
+      arguments: ResourceArg.extend({
+        name: z.string().describe(
+          "Name, slug, or ID of the resource to update",
+        ),
+        body: z.string().describe(
+          "JSON object with attributes to update",
+        ),
+      }),
+      execute: async (args, context) => {
+        const isV1 = args.resource in V1_RESOURCE_REGISTRY;
+
+        if (isV1) {
+          const entry = V1_RESOURCE_REGISTRY[args.resource];
+          if (entry.readOnly) {
+            throw new Error(
+              `"${args.resource}" is a read-only v1 resource`,
+            );
+          }
+
+          const configKey = context.globalArgs.configKey;
+          if (!configKey) {
+            throw new Error(
+              `v1 resource "${args.resource}" requires configKey in globalArguments`,
+            );
+          }
+
+          const trimmedKey = String(configKey).trim();
+          validateV1ConfigKey(trimmedKey);
+
+          const base = baseUrl(context.globalArgs.region);
+          const listUrl = resolveV1Request(
+            base,
+            args.resource,
+            args.dataset,
+          );
+          const headers = authHeadersV1(trimmedKey);
+
+          const listResp = await fetch(listUrl, { headers });
+          await assertOk(listResp);
+
+          const listJson = await listResp.json();
+          const items = Array.isArray(listJson) ? listJson : [];
+          const target = findV1ItemByName(items, args.name);
+
+          if (!target) {
+            throw new Error(
+              `No ${args.resource} found matching "${args.name}"`,
+            );
+          }
+
+          const id = v1ItemId(target, args.resource);
+          const updateUrl = resolveV1ItemUrl(
+            base,
+            args.resource,
+            id,
+            args.dataset,
+          );
+          const payload = JSON.parse(args.body);
+          const resp = await fetch(updateUrl, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify(payload),
+          });
+          await assertOk(resp);
+
+          const json = await resp.json();
+          const mapped = mapV1Item(json, args.resource, 0);
+
+          const handle = await context.writeResource(
+            "v1resource",
+            mapped.instanceName,
+            mapped.data,
+          );
+
+          return { dataHandles: [handle] };
+        }
+
+        // v2 path
+        const { teamSlug, base, headers } = connectionInfo(
+          context.globalArgs,
+        );
+        const collectionUrl = resourceUrl(base, teamSlug, args.resource);
+
+        const listResp = await fetch(collectionUrl, { headers });
+        await assertOk(listResp);
+
+        const listJson = await listResp.json();
+        const target = findByNameOrSlug(listJson.data, args.name);
+
+        if (!target) {
+          throw new Error(
+            `No ${args.resource} found matching "${args.name}"`,
+          );
+        }
+
+        const payload = JSON.parse(args.body);
+        const resp = await fetch(
+          `${collectionUrl}/${encodeURIComponent(target.id)}`,
+          {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify({
+              data: {
+                type: args.resource,
+                id: target.id,
+                attributes: payload,
+              },
+            }),
+          },
+        );
         await assertOk(resp);
 
         const json = await resp.json();
@@ -236,12 +413,64 @@ export const model = {
         name: z.string().describe("Name or slug of the resource to delete"),
       }),
       execute: async (args, context) => {
-        if (args.resource in V1_RESOURCE_REGISTRY) {
-          throw new Error(
-            `"${args.resource}" is a v1 API resource and does not support the "delete" method yet`,
+        const isV1 = args.resource in V1_RESOURCE_REGISTRY;
+
+        if (isV1) {
+          const entry = V1_RESOURCE_REGISTRY[args.resource];
+          if (entry.readOnly) {
+            throw new Error(
+              `"${args.resource}" is a read-only v1 resource`,
+            );
+          }
+
+          const configKey = context.globalArgs.configKey;
+          if (!configKey) {
+            throw new Error(
+              `v1 resource "${args.resource}" requires configKey in globalArguments`,
+            );
+          }
+
+          const trimmedKey = String(configKey).trim();
+          validateV1ConfigKey(trimmedKey);
+
+          const base = baseUrl(context.globalArgs.region);
+          const listUrl = resolveV1Request(
+            base,
+            args.resource,
+            args.dataset,
           );
+          const headers = authHeadersV1(trimmedKey);
+
+          const listResp = await fetch(listUrl, { headers });
+          await assertOk(listResp);
+
+          const listJson = await listResp.json();
+          const items = Array.isArray(listJson) ? listJson : [];
+          const target = findV1ItemByName(items, args.name);
+
+          if (!target) {
+            throw new Error(
+              `No ${args.resource} found matching "${args.name}"`,
+            );
+          }
+
+          const id = v1ItemId(target, args.resource);
+          const deleteUrl = resolveV1ItemUrl(
+            base,
+            args.resource,
+            id,
+            args.dataset,
+          );
+          const deleteResp = await fetch(deleteUrl, {
+            method: "DELETE",
+            headers,
+          });
+          await assertOk(deleteResp);
+
+          return { dataHandles: [] };
         }
 
+        // v2 path
         const { teamSlug, base, headers } = connectionInfo(
           context.globalArgs,
         );

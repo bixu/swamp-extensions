@@ -10,11 +10,14 @@ import {
   buildSummaryTable,
   connectionInfo,
   findByNameOrSlug,
+  findV1ItemByName,
   mapApiItem,
   mapV1Item,
+  resolveV1ItemUrl,
   resolveV1Request,
   resourceUrl,
   resourceUrlV1,
+  v1ItemId,
   validateV1ConfigKey,
   validateV2KeyId,
 } from "./honeycomb_helpers.ts";
@@ -1294,61 +1297,583 @@ Deno.test("get with v1 resource throws when configKey is a management key ID", a
 });
 
 // =====================================================================
-// create / delete v1 guard tests
+// resolveV1ItemUrl
 // =====================================================================
 
-Deno.test("create throws for v1 resource (datasets)", async () => {
+Deno.test("resolveV1ItemUrl builds global resource item URL", () => {
+  assertEquals(
+    resolveV1ItemUrl("https://api.honeycomb.io", "boards", "abc-123"),
+    "https://api.honeycomb.io/1/boards/abc-123",
+  );
+});
+
+Deno.test("resolveV1ItemUrl builds dataset-scoped resource item URL", () => {
+  assertEquals(
+    resolveV1ItemUrl(
+      "https://api.honeycomb.io",
+      "triggers",
+      "trig-1",
+      "my-ds",
+    ),
+    "https://api.honeycomb.io/1/triggers/my-ds/trig-1",
+  );
+});
+
+Deno.test("resolveV1ItemUrl maps hyphenated resource names to API paths", () => {
+  assertEquals(
+    resolveV1ItemUrl(
+      "https://api.honeycomb.io",
+      "derived-columns",
+      "dc-1",
+      "my-ds",
+    ),
+    "https://api.honeycomb.io/1/derived_columns/my-ds/dc-1",
+  );
+});
+
+Deno.test("resolveV1ItemUrl throws for unknown resource", () => {
+  let threw = false;
+  try {
+    resolveV1ItemUrl("https://api.honeycomb.io", "unknown", "id-1");
+  } catch (e) {
+    threw = true;
+    assertEquals((e as Error).message, "Unknown v1 resource: unknown");
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("resolveV1ItemUrl throws when dataset missing for dataset-scoped resource", () => {
+  let threw = false;
+  try {
+    resolveV1ItemUrl("https://api.honeycomb.io", "columns", "col-1");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message,
+      'Resource "columns" requires a dataset argument',
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("resolveV1ItemUrl encodes id and dataset", () => {
+  const url = resolveV1ItemUrl(
+    "https://api.honeycomb.io",
+    "triggers",
+    "id with spaces",
+    "ds with spaces",
+  );
+  assertEquals(url.includes("id%20with%20spaces"), true);
+  assertEquals(url.includes("ds%20with%20spaces"), true);
+});
+
+Deno.test("resolveV1ItemUrl builds datasets item URL using slug", () => {
+  assertEquals(
+    resolveV1ItemUrl("https://api.honeycomb.io", "datasets", "my-ds"),
+    "https://api.honeycomb.io/1/datasets/my-ds",
+  );
+});
+
+// =====================================================================
+// findV1ItemByName
+// =====================================================================
+
+Deno.test("findV1ItemByName matches by name", () => {
+  const items = [{ name: "My Board", id: "b-1" }];
+  assertEquals(findV1ItemByName(items, "My Board")?.id, "b-1");
+});
+
+Deno.test("findV1ItemByName matches by slug", () => {
+  const items = [{ slug: "backend", name: "Backend", id: "d-1" }];
+  assertEquals(findV1ItemByName(items, "backend")?.id, "d-1");
+});
+
+Deno.test("findV1ItemByName matches by id", () => {
+  const items = [{ name: "Thing", id: "abc-123" }];
+  assertEquals(findV1ItemByName(items, "abc-123")?.name, "Thing");
+});
+
+Deno.test("findV1ItemByName matches by alias (derived-columns)", () => {
+  const items = [{ alias: "my_derived", id: "dc-1" }];
+  assertEquals(findV1ItemByName(items, "my_derived")?.id, "dc-1");
+});
+
+Deno.test("findV1ItemByName matches by key_name (columns)", () => {
+  const items = [{ key_name: "duration_ms", id: "col-1" }];
+  assertEquals(findV1ItemByName(items, "duration_ms")?.id, "col-1");
+});
+
+Deno.test("findV1ItemByName returns undefined for no match", () => {
+  const items = [{ name: "A", id: "1" }];
+  assertEquals(findV1ItemByName(items, "nonexistent"), undefined);
+});
+
+Deno.test("findV1ItemByName returns undefined for empty list", () => {
+  assertEquals(findV1ItemByName([], "anything"), undefined);
+});
+
+// =====================================================================
+// v1ItemId
+// =====================================================================
+
+Deno.test("v1ItemId returns slug for datasets", () => {
+  assertEquals(v1ItemId({ slug: "my-ds", id: "123" }, "datasets"), "my-ds");
+});
+
+Deno.test("v1ItemId returns id for non-dataset resources", () => {
+  assertEquals(
+    v1ItemId({ id: "trig-1", name: "My Trigger" }, "triggers"),
+    "trig-1",
+  );
+});
+
+Deno.test("v1ItemId returns id for boards", () => {
+  assertEquals(v1ItemId({ id: "b-1", name: "My Board" }, "boards"), "b-1");
+});
+
+// =====================================================================
+// create v1 method tests
+// =====================================================================
+
+Deno.test("create throws for read-only v1 resource (dataset-definitions)", async () => {
   const { context } = mockV1Context();
 
   await assertRejects(
     () =>
       model.methods.create.execute(
-        { resource: "datasets", name: "test-ds" },
+        { resource: "dataset-definitions", name: "test", dataset: "my-ds" },
         context,
       ),
     Error,
-    '"datasets" is a v1 API resource and does not support the "create" method yet',
+    '"dataset-definitions" is a read-only v1 resource',
   );
 });
 
-Deno.test("create throws for v1 resource (triggers)", async () => {
+Deno.test("create v1 resource posts to collection URL", async () => {
+  const { context, written } = mockV1Context();
+  const stub = stubFetch([{
+    ok: true,
+    body: { id: "b-1", name: "My Board" },
+  }]);
+
+  try {
+    const result = await model.methods.create.execute(
+      { resource: "boards", name: "My Board" },
+      context,
+    );
+
+    assertEquals(result.dataHandles.length, 1);
+    assertEquals(written[0].spec, "v1resource");
+    assertEquals(written[0].instance, "My Board");
+    assertEquals(stub.calls[0].url, "https://api.honeycomb.io/1/boards");
+    assertEquals(stub.calls[0].init?.method, "POST");
+
+    const sentBody = JSON.parse(stub.calls[0].init?.body as string);
+    assertEquals(sentBody.name, "My Board");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("create v1 resource uses body arg when provided", async () => {
   const { context } = mockV1Context();
+  const stub = stubFetch([{
+    ok: true,
+    body: { id: "t-1", name: "CPU Alert", threshold: { op: ">", value: 90 } },
+  }]);
+
+  try {
+    await model.methods.create.execute(
+      {
+        resource: "triggers",
+        name: "CPU Alert",
+        dataset: "backend",
+        body: JSON.stringify({
+          name: "CPU Alert",
+          threshold: { op: ">", value: 90 },
+        }),
+      },
+      context,
+    );
+
+    const sentBody = JSON.parse(stub.calls[0].init?.body as string);
+    assertEquals(sentBody.threshold.op, ">");
+    assertEquals(sentBody.threshold.value, 90);
+    assertEquals(
+      stub.calls[0].url,
+      "https://api.honeycomb.io/1/triggers/backend",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("create v1 resource requires configKey", async () => {
+  const { context } = mockContext(); // no configKey
 
   await assertRejects(
     () =>
       model.methods.create.execute(
-        { resource: "triggers", name: "test-trigger" },
+        { resource: "boards", name: "test" },
         context,
       ),
     Error,
-    '"triggers" is a v1 API resource and does not support the "create" method yet',
+    "requires configKey",
   );
 });
 
-Deno.test("delete throws for v1 resource (datasets)", async () => {
+// =====================================================================
+// update method tests
+// =====================================================================
+
+Deno.test("update v2 resource patches by id after lookup", async () => {
+  const { context, written } = mockContext();
+  const stub = stubFetch([
+    {
+      ok: true,
+      body: {
+        data: [{
+          id: "env-1",
+          type: "environments",
+          attributes: { name: "cicd", slug: "cicd" },
+        }],
+        links: {},
+      },
+    },
+    {
+      ok: true,
+      body: {
+        data: {
+          id: "env-1",
+          type: "environments",
+          attributes: {
+            name: "cicd",
+            slug: "cicd",
+            settings: { delete_protected: false },
+          },
+        },
+      },
+    },
+  ]);
+
+  try {
+    const result = await model.methods.update.execute(
+      {
+        resource: "environments",
+        name: "cicd",
+        body: JSON.stringify({ settings: { delete_protected: false } }),
+      },
+      context,
+    );
+
+    assertEquals(result.dataHandles.length, 1);
+    assertEquals(written[0].spec, "resource");
+    assertEquals(stub.calls[1].init?.method, "PATCH");
+    assertEquals(
+      stub.calls[1].url,
+      "https://api.honeycomb.io/2/teams/my-team/environments/env-1",
+    );
+
+    const sentBody = JSON.parse(stub.calls[1].init?.body as string);
+    assertEquals(sentBody.data.type, "environments");
+    assertEquals(sentBody.data.id, "env-1");
+    assertEquals(sentBody.data.attributes.settings.delete_protected, false);
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("update v2 resource throws when not found", async () => {
+  const { context } = mockContext();
+  const stub = stubFetch([{
+    ok: true,
+    body: { data: [], links: {} },
+  }]);
+
+  try {
+    await assertRejects(
+      () =>
+        model.methods.update.execute(
+          {
+            resource: "environments",
+            name: "nonexistent",
+            body: JSON.stringify({ color: "red" }),
+          },
+          context,
+        ),
+      Error,
+      'No environments found matching "nonexistent"',
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("update v1 resource puts to item URL after lookup", async () => {
+  const { context, written } = mockV1Context();
+  const stub = stubFetch([
+    {
+      ok: true,
+      body: [
+        { id: "b-1", name: "My Board" },
+      ],
+    },
+    {
+      ok: true,
+      body: { id: "b-1", name: "Updated Board" },
+    },
+  ]);
+
+  try {
+    const result = await model.methods.update.execute(
+      {
+        resource: "boards",
+        name: "My Board",
+        body: JSON.stringify({ name: "Updated Board" }),
+      },
+      context,
+    );
+
+    assertEquals(result.dataHandles.length, 1);
+    assertEquals(written[0].spec, "v1resource");
+    assertEquals(stub.calls[1].init?.method, "PUT");
+    assertEquals(
+      stub.calls[1].url,
+      "https://api.honeycomb.io/1/boards/b-1",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("update v1 dataset-scoped resource includes dataset in URL", async () => {
+  const { context } = mockV1Context();
+  const stub = stubFetch([
+    {
+      ok: true,
+      body: [{ id: "t-1", name: "CPU Alert" }],
+    },
+    {
+      ok: true,
+      body: { id: "t-1", name: "CPU Alert", threshold: { value: 95 } },
+    },
+  ]);
+
+  try {
+    await model.methods.update.execute(
+      {
+        resource: "triggers",
+        name: "CPU Alert",
+        dataset: "backend",
+        body: JSON.stringify({ threshold: { value: 95 } }),
+      },
+      context,
+    );
+
+    assertEquals(
+      stub.calls[1].url,
+      "https://api.honeycomb.io/1/triggers/backend/t-1",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("update v1 resource throws when not found", async () => {
+  const { context } = mockV1Context();
+  const stub = stubFetch([{
+    ok: true,
+    body: [],
+  }]);
+
+  try {
+    await assertRejects(
+      () =>
+        model.methods.update.execute(
+          {
+            resource: "boards",
+            name: "nonexistent",
+            body: JSON.stringify({ name: "x" }),
+          },
+          context,
+        ),
+      Error,
+      'No boards found matching "nonexistent"',
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("update throws for read-only v1 resource (dataset-definitions)", async () => {
+  const { context } = mockV1Context();
+
+  await assertRejects(
+    () =>
+      model.methods.update.execute(
+        {
+          resource: "dataset-definitions",
+          name: "test",
+          dataset: "my-ds",
+          body: JSON.stringify({ x: 1 }),
+        },
+        context,
+      ),
+    Error,
+    '"dataset-definitions" is a read-only v1 resource',
+  );
+});
+
+Deno.test("update v1 resource requires configKey", async () => {
+  const { context } = mockContext(); // no configKey
+
+  await assertRejects(
+    () =>
+      model.methods.update.execute(
+        {
+          resource: "boards",
+          name: "test",
+          body: JSON.stringify({ name: "x" }),
+        },
+        context,
+      ),
+    Error,
+    "requires configKey",
+  );
+});
+
+// =====================================================================
+// delete v1 method tests
+// =====================================================================
+
+Deno.test("delete v1 resource deletes by item URL after lookup", async () => {
+  const { context } = mockV1Context();
+  const stub = stubFetch([
+    {
+      ok: true,
+      body: [
+        { id: "b-1", name: "My Board" },
+        { id: "b-2", name: "Other Board" },
+      ],
+    },
+    { ok: true, body: null },
+  ]);
+
+  try {
+    const result = await model.methods.delete.execute(
+      { resource: "boards", name: "My Board" },
+      context,
+    );
+
+    assertEquals(result.dataHandles.length, 0);
+    assertEquals(stub.calls[1].init?.method, "DELETE");
+    assertEquals(
+      stub.calls[1].url,
+      "https://api.honeycomb.io/1/boards/b-1",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("delete v1 dataset-scoped resource includes dataset in URL", async () => {
+  const { context } = mockV1Context();
+  const stub = stubFetch([
+    {
+      ok: true,
+      body: [{ id: "col-1", key_name: "duration_ms" }],
+    },
+    { ok: true, body: null },
+  ]);
+
+  try {
+    await model.methods.delete.execute(
+      { resource: "columns", name: "duration_ms", dataset: "backend" },
+      context,
+    );
+
+    assertEquals(
+      stub.calls[1].url,
+      "https://api.honeycomb.io/1/columns/backend/col-1",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("delete v1 datasets uses slug as id", async () => {
+  const { context } = mockV1Context();
+  const stub = stubFetch([
+    {
+      ok: true,
+      body: [
+        { slug: "my-ds", name: "My Dataset" },
+      ],
+    },
+    { ok: true, body: null },
+  ]);
+
+  try {
+    await model.methods.delete.execute(
+      { resource: "datasets", name: "my-ds" },
+      context,
+    );
+
+    assertEquals(
+      stub.calls[1].url,
+      "https://api.honeycomb.io/1/datasets/my-ds",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("delete v1 resource throws when not found", async () => {
+  const { context } = mockV1Context();
+  const stub = stubFetch([{
+    ok: true,
+    body: [],
+  }]);
+
+  try {
+    await assertRejects(
+      () =>
+        model.methods.delete.execute(
+          { resource: "boards", name: "nonexistent" },
+          context,
+        ),
+      Error,
+      'No boards found matching "nonexistent"',
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("delete throws for read-only v1 resource (dataset-definitions)", async () => {
   const { context } = mockV1Context();
 
   await assertRejects(
     () =>
       model.methods.delete.execute(
-        { resource: "datasets", name: "backend" },
+        { resource: "dataset-definitions", name: "test", dataset: "my-ds" },
         context,
       ),
     Error,
-    '"datasets" is a v1 API resource and does not support the "delete" method yet',
+    '"dataset-definitions" is a read-only v1 resource',
   );
 });
 
-Deno.test("delete throws for v1 resource (boards)", async () => {
-  const { context } = mockV1Context();
+Deno.test("delete v1 resource requires configKey", async () => {
+  const { context } = mockContext(); // no configKey
 
   await assertRejects(
     () =>
       model.methods.delete.execute(
-        { resource: "boards", name: "my-board" },
+        { resource: "boards", name: "test" },
         context,
       ),
     Error,
-    '"boards" is a v1 API resource and does not support the "delete" method yet',
+    "requires configKey",
   );
 });

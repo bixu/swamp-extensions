@@ -213,10 +213,10 @@ export function resourceUrlV1(
 
 export const V1_RESOURCE_REGISTRY: Record<
   string,
-  { datasetScoped: boolean; slugFilterable?: boolean }
+  { datasetScoped: boolean; slugFilterable?: boolean; readOnly?: boolean }
 > = {
   "datasets": { datasetScoped: false, slugFilterable: true },
-  "dataset-definitions": { datasetScoped: true },
+  "dataset-definitions": { datasetScoped: true, readOnly: true },
   "triggers": { datasetScoped: true },
   "boards": { datasetScoped: false },
   "recipients": { datasetScoped: false },
@@ -278,4 +278,51 @@ export function findByNameOrSlug(
     item.attributes?.name === name ||
     item.attributes?.slug === name
   );
+}
+
+export function resolveV1ItemUrl(
+  base: string,
+  resource: string,
+  id: string,
+  dataset?: string,
+): string {
+  const entry = V1_RESOURCE_REGISTRY[resource];
+  if (!entry) {
+    throw new Error(`Unknown v1 resource: ${resource}`);
+  }
+  if (entry.datasetScoped && !dataset) {
+    throw new Error(
+      `Resource "${resource}" requires a dataset argument`,
+    );
+  }
+  const apiPath = V1_API_PATH_MAP[resource] ?? resource;
+  if (entry.datasetScoped) {
+    return `${base}/1/${encodeURIComponent(apiPath)}/${
+      encodeURIComponent(dataset!)
+    }/${encodeURIComponent(id)}`;
+  }
+  return `${base}/1/${encodeURIComponent(apiPath)}/${encodeURIComponent(id)}`;
+}
+
+export function findV1ItemByName(
+  items: Array<Record<string, unknown>>,
+  name: string,
+): Record<string, unknown> | undefined {
+  return items.find((item) =>
+    item.name === name ||
+    item.slug === name ||
+    item.id === name ||
+    item.alias === name ||
+    item.key_name === name
+  );
+}
+
+export function v1ItemId(
+  item: Record<string, unknown>,
+  resource: string,
+): string {
+  if (resource === "datasets") {
+    return item.slug as string;
+  }
+  return item.id as string;
 }
