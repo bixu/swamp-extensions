@@ -1,5 +1,8 @@
 import { S3Client } from "jsr:@bradenmacdonald/s3-lite-client@0.7";
+import { getSignedUrl } from "https://deno.land/x/aws_s3_presign@2.2.1/mod.ts";
+import { parse } from "jsr:@libs/xml@7/parse";
 import { contentTypeFromPath } from "./s3_utils.ts";
+import { signRequest } from "./s3_sigv4.ts";
 
 // Re-export so s3.ts can import everything from one place
 export { buildKey, contentTypeFromPath } from "./s3_utils.ts";
@@ -171,35 +174,80 @@ export interface BucketEntry {
 }
 
 /**
+ * Parse the XML response from the S3 ListAllMyBuckets API into BucketEntry[].
+ */
+export function parseBucketListXml(xml: string): BucketEntry[] {
+  // deno-lint-ignore no-explicit-any
+  const doc = parse(xml) as any;
+  const buckets = doc?.ListAllMyBucketsResult?.Buckets?.Bucket ?? [];
+  const list = Array.isArray(buckets) ? buckets : [buckets];
+  return list.map((b: { Name: string; CreationDate?: string }) => ({
+    name: b.Name,
+    creationDate: b.CreationDate ? new Date(b.CreationDate) : null,
+  }));
+}
+
+/**
  * List all S3 buckets using the S3 ListBuckets API.
- * s3-lite-client doesn't have a listBuckets method, so we resolve
- * credentials and issue a signed request via `aws s3api list-buckets`.
+ * Issues a Sig V4 signed GET request to the S3 endpoint.
  */
 export async function listAllBuckets(
   opts: ClientOptions,
 ): Promise<BucketEntry[]> {
-  const args = ["s3api", "list-buckets", "--output", "json"];
-  if (opts.awsProfile) args.push("--profile", opts.awsProfile);
-  if (opts.region) args.push("--region", opts.region);
-  if (opts.endpoint) args.push("--endpoint-url", opts.endpoint);
-
-  const cmd = new Deno.Command("aws", {
-    args,
-    stdout: "piped",
-    stderr: "piped",
-  });
-  const result = await cmd.output();
-  if (!result.success) {
-    const stderr = sanitizeStderr(new TextDecoder().decode(result.stderr));
-    throw new Error(`Failed to list buckets: ${stderr}`);
-  }
-  const json = JSON.parse(new TextDecoder().decode(result.stdout));
-  return (json.Buckets || []).map(
-    (b: { Name: string; CreationDate?: string }) => ({
-      name: b.Name,
-      creationDate: b.CreationDate ? new Date(b.CreationDate) : null,
-    }),
+  const creds = await resolveCredentials(opts.awsProfile);
+  const url = new URL(
+    "/",
+    opts.endpoint || `https://s3.${opts.region}.amazonaws.com`,
   );
+  const headers = await signRequest(
+    "GET",
+    url,
+    new Headers(),
+    "",
+    creds,
+    opts.region,
+    "s3",
+  );
+  const resp = await fetch(url, { headers });
+  if (!resp.ok) {
+    throw new Error(
+      `Failed to list buckets (HTTP ${resp.status}): ${await resp.text()}`,
+    );
+  }
+  return parseBucketListXml(await resp.text());
+}
+
+/**
+ * Generate a pre-signed URL for an S3 object.
+ * Uses aws_s3_presign which correctly includes X-Amz-Security-Token
+ * for STS/SSO temporary credentials.
+ */
+export async function presignUrl(
+  opts: ClientOptions,
+  bucket: string,
+  key: string,
+  method: "GET" | "PUT",
+  expiresIn: number,
+): Promise<string> {
+  const creds = await resolveCredentials(opts.awsProfile);
+  // aws_s3_presign expects endpoint without scheme (it prepends https://)
+  let endpoint: string | undefined;
+  if (opts.endpoint) {
+    const epUrl = new URL(opts.endpoint);
+    endpoint = epUrl.host;
+  }
+  return getSignedUrl({
+    accessKeyId: creds.accessKey,
+    secretAccessKey: creds.secretKey,
+    sessionToken: creds.sessionToken,
+    bucket,
+    key,
+    method,
+    region: opts.region,
+    expiresIn,
+    endpoint,
+    usePathRequestStyle: opts.forcePathStyle || !!opts.endpoint,
+  });
 }
 
 /** Fields from s3-lite-client statObject / response metadata. */
