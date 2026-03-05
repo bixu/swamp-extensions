@@ -63,7 +63,7 @@ export function authHeaders(
   return {
     Authorization: `Bearer ${apiKeyId}:${apiKeySecret}`,
     Accept: "application/vnd.api+json",
-    "Content-Type": "application/json",
+    "Content-Type": "application/vnd.api+json",
   };
 }
 
@@ -213,20 +213,29 @@ export function resourceUrlV1(
 
 export const V1_RESOURCE_REGISTRY: Record<
   string,
-  { datasetScoped: boolean; slugFilterable?: boolean }
+  { datasetScoped: boolean; slugFilterable?: boolean; readOnly?: boolean }
 > = {
   "datasets": { datasetScoped: false, slugFilterable: true },
-  "dataset-definitions": { datasetScoped: true },
+  "dataset-definitions": { datasetScoped: true, readOnly: true },
   "triggers": { datasetScoped: true },
   "boards": { datasetScoped: false },
   "recipients": { datasetScoped: false },
   "columns": { datasetScoped: true },
   "derived-columns": { datasetScoped: true },
+  "markers": { datasetScoped: true },
+  "marker-settings": { datasetScoped: true },
+  "slos": { datasetScoped: true },
+  "burn-alerts": { datasetScoped: true },
+  "query-annotations": { datasetScoped: true },
+  "auth": { datasetScoped: false, readOnly: true },
 };
 
 const V1_API_PATH_MAP: Record<string, string> = {
   "dataset-definitions": "dataset_definitions",
   "derived-columns": "derived_columns",
+  "marker-settings": "marker_settings",
+  "burn-alerts": "burn_alerts",
+  "query-annotations": "query_annotations",
 };
 
 export function resolveV1Request(
@@ -278,4 +287,51 @@ export function findByNameOrSlug(
     item.attributes?.name === name ||
     item.attributes?.slug === name
   );
+}
+
+export function resolveV1ItemUrl(
+  base: string,
+  resource: string,
+  id: string,
+  dataset?: string,
+): string {
+  const entry = V1_RESOURCE_REGISTRY[resource];
+  if (!entry) {
+    throw new Error(`Unknown v1 resource: ${resource}`);
+  }
+  if (entry.datasetScoped && !dataset) {
+    throw new Error(
+      `Resource "${resource}" requires a dataset argument`,
+    );
+  }
+  const apiPath = V1_API_PATH_MAP[resource] ?? resource;
+  if (entry.datasetScoped) {
+    return `${base}/1/${encodeURIComponent(apiPath)}/${
+      encodeURIComponent(dataset!)
+    }/${encodeURIComponent(id)}`;
+  }
+  return `${base}/1/${encodeURIComponent(apiPath)}/${encodeURIComponent(id)}`;
+}
+
+export function findV1ItemByName(
+  items: Array<Record<string, unknown>>,
+  name: string,
+): Record<string, unknown> | undefined {
+  return items.find((item) =>
+    item.name === name ||
+    item.slug === name ||
+    item.id === name ||
+    item.alias === name ||
+    item.key_name === name
+  );
+}
+
+export function v1ItemId(
+  item: Record<string, unknown>,
+  resource: string,
+): string {
+  if (resource === "datasets") {
+    return item.slug as string;
+  }
+  return item.id as string;
 }
