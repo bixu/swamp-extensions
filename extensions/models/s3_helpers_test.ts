@@ -5,6 +5,8 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   normalizeObjectMeta,
+  parseBucketListXml,
+  presignUrl,
   resolveBucket,
   resolveCredentials,
   resolveKey,
@@ -140,6 +142,179 @@ Deno.test("resolveCredentials throws when env vars missing", async () => {
     if (origAccess) Deno.env.set("AWS_ACCESS_KEY_ID", origAccess);
     if (origSecret) Deno.env.set("AWS_SECRET_ACCESS_KEY", origSecret);
   }
+});
+
+// --- presignUrl ---
+
+Deno.test("presignUrl generates GET URL with correct structure", async () => {
+  const origAccess = Deno.env.get("AWS_ACCESS_KEY_ID");
+  const origSecret = Deno.env.get("AWS_SECRET_ACCESS_KEY");
+  const origSession = Deno.env.get("AWS_SESSION_TOKEN");
+
+  try {
+    Deno.env.set("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE");
+    Deno.env.set(
+      "AWS_SECRET_ACCESS_KEY",
+      "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    );
+    Deno.env.delete("AWS_SESSION_TOKEN");
+
+    const url = await presignUrl(
+      { region: "us-east-1" },
+      "my-bucket",
+      "path/to/file.txt",
+      "GET",
+      3600,
+    );
+    const parsed = new URL(url);
+    assertEquals(parsed.searchParams.has("X-Amz-Signature"), true);
+    assertEquals(parsed.searchParams.get("X-Amz-Expires"), "3600");
+    assertEquals(
+      parsed.searchParams.get("X-Amz-Credential")!.startsWith(
+        "AKIAIOSFODNN7EXAMPLE/",
+      ),
+      true,
+    );
+    assertEquals(parsed.pathname.includes("file.txt"), true);
+  } finally {
+    if (origAccess) Deno.env.set("AWS_ACCESS_KEY_ID", origAccess);
+    else Deno.env.delete("AWS_ACCESS_KEY_ID");
+    if (origSecret) Deno.env.set("AWS_SECRET_ACCESS_KEY", origSecret);
+    else Deno.env.delete("AWS_SECRET_ACCESS_KEY");
+    if (origSession) Deno.env.set("AWS_SESSION_TOKEN", origSession);
+    else Deno.env.delete("AWS_SESSION_TOKEN");
+  }
+});
+
+Deno.test("presignUrl includes X-Amz-Security-Token for STS credentials", async () => {
+  const origAccess = Deno.env.get("AWS_ACCESS_KEY_ID");
+  const origSecret = Deno.env.get("AWS_SECRET_ACCESS_KEY");
+  const origSession = Deno.env.get("AWS_SESSION_TOKEN");
+
+  try {
+    Deno.env.set("AWS_ACCESS_KEY_ID", "ASIAEXAMPLE");
+    Deno.env.set("AWS_SECRET_ACCESS_KEY", "secretkey");
+    Deno.env.set("AWS_SESSION_TOKEN", "FwoGZXIvYXdzEBYaDH+token");
+
+    const url = await presignUrl(
+      { region: "us-east-1" },
+      "my-bucket",
+      "file.txt",
+      "GET",
+      900,
+    );
+    const parsed = new URL(url);
+    assertEquals(
+      parsed.searchParams.get("X-Amz-Security-Token"),
+      "FwoGZXIvYXdzEBYaDH+token",
+    );
+  } finally {
+    if (origAccess) Deno.env.set("AWS_ACCESS_KEY_ID", origAccess);
+    else Deno.env.delete("AWS_ACCESS_KEY_ID");
+    if (origSecret) Deno.env.set("AWS_SECRET_ACCESS_KEY", origSecret);
+    else Deno.env.delete("AWS_SECRET_ACCESS_KEY");
+    if (origSession) Deno.env.set("AWS_SESSION_TOKEN", origSession);
+    else Deno.env.delete("AWS_SESSION_TOKEN");
+  }
+});
+
+Deno.test("presignUrl generates PUT URL", async () => {
+  const origAccess = Deno.env.get("AWS_ACCESS_KEY_ID");
+  const origSecret = Deno.env.get("AWS_SECRET_ACCESS_KEY");
+  const origSession = Deno.env.get("AWS_SESSION_TOKEN");
+
+  try {
+    Deno.env.set("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE");
+    Deno.env.set("AWS_SECRET_ACCESS_KEY", "secretkey");
+    Deno.env.delete("AWS_SESSION_TOKEN");
+
+    const url = await presignUrl(
+      { region: "us-west-2" },
+      "upload-bucket",
+      "data.csv",
+      "PUT",
+      1800,
+    );
+    const parsed = new URL(url);
+    assertEquals(parsed.searchParams.has("X-Amz-Signature"), true);
+    assertEquals(parsed.searchParams.get("X-Amz-Expires"), "1800");
+  } finally {
+    if (origAccess) Deno.env.set("AWS_ACCESS_KEY_ID", origAccess);
+    else Deno.env.delete("AWS_ACCESS_KEY_ID");
+    if (origSecret) Deno.env.set("AWS_SECRET_ACCESS_KEY", origSecret);
+    else Deno.env.delete("AWS_SECRET_ACCESS_KEY");
+    if (origSession) Deno.env.set("AWS_SESSION_TOKEN", origSession);
+    else Deno.env.delete("AWS_SESSION_TOKEN");
+  }
+});
+
+Deno.test("presignUrl uses path-style for custom endpoints", async () => {
+  const origAccess = Deno.env.get("AWS_ACCESS_KEY_ID");
+  const origSecret = Deno.env.get("AWS_SECRET_ACCESS_KEY");
+  const origSession = Deno.env.get("AWS_SESSION_TOKEN");
+
+  try {
+    Deno.env.set("AWS_ACCESS_KEY_ID", "AKIAEXAMPLE");
+    Deno.env.set("AWS_SECRET_ACCESS_KEY", "secretkey");
+    Deno.env.delete("AWS_SESSION_TOKEN");
+
+    const url = await presignUrl(
+      { region: "us-east-1", endpoint: "https://minio.local:9000" },
+      "my-bucket",
+      "file.txt",
+      "GET",
+      3600,
+    );
+    const parsed = new URL(url);
+    // Path-style: bucket in path, not subdomain
+    assertEquals(parsed.hostname, "minio.local");
+    assertEquals(parsed.pathname.startsWith("/my-bucket/"), true);
+  } finally {
+    if (origAccess) Deno.env.set("AWS_ACCESS_KEY_ID", origAccess);
+    else Deno.env.delete("AWS_ACCESS_KEY_ID");
+    if (origSecret) Deno.env.set("AWS_SECRET_ACCESS_KEY", origSecret);
+    else Deno.env.delete("AWS_SECRET_ACCESS_KEY");
+    if (origSession) Deno.env.set("AWS_SESSION_TOKEN", origSession);
+    else Deno.env.delete("AWS_SESSION_TOKEN");
+  }
+});
+
+// --- parseBucketListXml ---
+
+Deno.test("parseBucketListXml parses standard response", () => {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Buckets>
+    <Bucket>
+      <Name>my-bucket</Name>
+      <CreationDate>2025-01-15T10:30:00.000Z</CreationDate>
+    </Bucket>
+    <Bucket>
+      <Name>other-bucket</Name>
+      <CreationDate>2025-06-20T08:00:00.000Z</CreationDate>
+    </Bucket>
+  </Buckets>
+</ListAllMyBucketsResult>`;
+
+  const result = parseBucketListXml(xml);
+  assertEquals(result.length, 2);
+  assertEquals(result[0].name, "my-bucket");
+  assertEquals(result[0].creationDate instanceof Date, true);
+  assertEquals(
+    result[0].creationDate!.toISOString(),
+    "2025-01-15T10:30:00.000Z",
+  );
+  assertEquals(result[1].name, "other-bucket");
+});
+
+Deno.test("parseBucketListXml handles empty bucket list", () => {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<ListAllMyBucketsResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Buckets></Buckets>
+</ListAllMyBucketsResult>`;
+
+  const result = parseBucketListXml(xml);
+  assertEquals(result.length, 0);
 });
 
 // --- normalizeObjectMeta ---
