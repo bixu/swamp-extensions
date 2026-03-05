@@ -1877,3 +1877,246 @@ Deno.test("delete v1 resource requires configKey", async () => {
     "requires configKey",
   );
 });
+
+// =====================================================================
+// v2 create / delete stubbed integration tests
+// =====================================================================
+
+Deno.test("create v2 resource posts JSON:API body and writes resource", async () => {
+  const { context, written } = mockContext();
+  const stub = stubFetch([{
+    ok: true,
+    body: {
+      data: {
+        id: "env-new",
+        type: "environments",
+        attributes: { name: "test-env", slug: "test-env", color: "gold" },
+      },
+    },
+  }]);
+
+  try {
+    const result = await model.methods.create.execute(
+      { resource: "environments", name: "test-env" },
+      context,
+    );
+
+    assertEquals(result.dataHandles.length, 1);
+    assertEquals(written[0].spec, "resource");
+    assertEquals(written[0].instance, "test-env");
+    assertEquals(stub.calls[0].init?.method, "POST");
+    assertEquals(
+      stub.calls[0].url,
+      "https://api.honeycomb.io/2/teams/my-team/environments",
+    );
+
+    const sentBody = JSON.parse(stub.calls[0].init?.body as string);
+    assertEquals(sentBody.data.type, "environments");
+    assertEquals(sentBody.data.attributes.name, "test-env");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("create v2 resource uses body arg when provided", async () => {
+  const { context, written } = mockContext();
+  const stub = stubFetch([{
+    ok: true,
+    body: {
+      data: {
+        id: "env-new",
+        type: "environments",
+        attributes: {
+          name: "test-env",
+          slug: "test-env",
+          color: "blue",
+          description: "A test",
+        },
+      },
+    },
+  }]);
+
+  try {
+    await model.methods.create.execute(
+      {
+        resource: "environments",
+        name: "test-env",
+        body: JSON.stringify({
+          name: "test-env",
+          color: "blue",
+          description: "A test",
+        }),
+      },
+      context,
+    );
+
+    assertEquals(written[0].instance, "test-env");
+    const sentBody = JSON.parse(stub.calls[0].init?.body as string);
+    assertEquals(sentBody.data.attributes.color, "blue");
+    assertEquals(sentBody.data.attributes.description, "A test");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("create v2 resource throws on API error", async () => {
+  const { context } = mockContext();
+  const stub = stubFetch([{
+    ok: false,
+    status: 422,
+    body: "Validation failed",
+  }]);
+
+  try {
+    await assertRejects(
+      () =>
+        model.methods.create.execute(
+          { resource: "environments", name: "bad" },
+          context,
+        ),
+      Error,
+      "Honeycomb API error 422",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("delete v2 resource finds by name and deletes by id", async () => {
+  const { context } = mockContext();
+  const stub = stubFetch([
+    {
+      ok: true,
+      body: {
+        data: [
+          {
+            id: "env-1",
+            type: "environments",
+            attributes: { name: "keep-me", slug: "keep-me" },
+          },
+          {
+            id: "env-2",
+            type: "environments",
+            attributes: { name: "delete-me", slug: "delete-me" },
+          },
+        ],
+        links: {},
+      },
+    },
+    { ok: true, status: 204, body: null },
+  ]);
+
+  try {
+    const result = await model.methods.delete.execute(
+      { resource: "environments", name: "delete-me" },
+      context,
+    );
+
+    assertEquals(result.dataHandles.length, 0);
+    assertEquals(stub.calls[1].init?.method, "DELETE");
+    assertEquals(
+      stub.calls[1].url,
+      "https://api.honeycomb.io/2/teams/my-team/environments/env-2",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("delete v2 resource throws when not found", async () => {
+  const { context } = mockContext();
+  const stub = stubFetch([{
+    ok: true,
+    body: { data: [], links: {} },
+  }]);
+
+  try {
+    await assertRejects(
+      () =>
+        model.methods.delete.execute(
+          { resource: "environments", name: "nonexistent" },
+          context,
+        ),
+      Error,
+      'No environments found matching "nonexistent"',
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+// =====================================================================
+// update v1 datasets uses slug as item id
+// =====================================================================
+
+Deno.test("update v1 datasets uses slug in item URL", async () => {
+  const { context } = mockV1Context();
+  const stub = stubFetch([
+    {
+      ok: true,
+      body: [
+        { slug: "backend", name: "Backend" },
+      ],
+    },
+    {
+      ok: true,
+      body: { slug: "backend", name: "Backend", description: "Updated" },
+    },
+  ]);
+
+  try {
+    await model.methods.update.execute(
+      {
+        resource: "datasets",
+        name: "backend",
+        body: JSON.stringify({ description: "Updated" }),
+      },
+      context,
+    );
+
+    assertEquals(
+      stub.calls[1].url,
+      "https://api.honeycomb.io/1/datasets/backend",
+    );
+    assertEquals(stub.calls[1].init?.method, "PUT");
+  } finally {
+    stub.restore();
+  }
+});
+
+// =====================================================================
+// delete v1 lookup by alias (derived-columns)
+// =====================================================================
+
+Deno.test("delete v1 derived-column found by alias", async () => {
+  const { context } = mockV1Context();
+  const stub = stubFetch([
+    {
+      ok: true,
+      body: [
+        { id: "dc-1", alias: "p99_latency" },
+        { id: "dc-2", alias: "error_rate" },
+      ],
+    },
+    { ok: true, body: null },
+  ]);
+
+  try {
+    await model.methods.delete.execute(
+      {
+        resource: "derived-columns",
+        name: "error_rate",
+        dataset: "backend",
+      },
+      context,
+    );
+
+    assertEquals(stub.calls[1].init?.method, "DELETE");
+    assertEquals(
+      stub.calls[1].url,
+      "https://api.honeycomb.io/1/derived_columns/backend/dc-2",
+    );
+  } finally {
+    stub.restore();
+  }
+});
