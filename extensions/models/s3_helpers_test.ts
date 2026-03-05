@@ -1,75 +1,187 @@
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { buildKey, contentTypeFromPath } from "./s3_utils.ts";
+import {
+  assertEquals,
+  assertThrows,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  normalizeObjectMeta,
+  recordToTagSet,
+  resolveBucket,
+  resolveKey,
+  streamToBytes,
+  tagSetToRecord,
+} from "./s3_helpers.ts";
 
-// --- contentTypeFromPath ---
+// --- resolveBucket ---
 
-Deno.test("contentTypeFromPath returns image/jpeg for .jpg", () => {
-  assertEquals(contentTypeFromPath("photo.jpg"), "image/jpeg");
-});
-
-Deno.test("contentTypeFromPath returns image/jpeg for .jpeg", () => {
-  assertEquals(contentTypeFromPath("/path/to/photo.jpeg"), "image/jpeg");
-});
-
-Deno.test("contentTypeFromPath returns image/png for .png", () => {
-  assertEquals(contentTypeFromPath("image.png"), "image/png");
-});
-
-Deno.test("contentTypeFromPath returns image/webp for .webp", () => {
-  assertEquals(contentTypeFromPath("photo.webp"), "image/webp");
-});
-
-Deno.test("contentTypeFromPath returns image/gif for .gif", () => {
-  assertEquals(contentTypeFromPath("animation.gif"), "image/gif");
-});
-
-Deno.test("contentTypeFromPath returns application/pdf for .pdf", () => {
-  assertEquals(contentTypeFromPath("doc.pdf"), "application/pdf");
-});
-
-Deno.test("contentTypeFromPath returns application/json for .json", () => {
-  assertEquals(contentTypeFromPath("data.json"), "application/json");
-});
-
-Deno.test("contentTypeFromPath returns application/octet-stream for unknown", () => {
-  assertEquals(contentTypeFromPath("file.xyz"), "application/octet-stream");
-});
-
-Deno.test("contentTypeFromPath is case-insensitive", () => {
-  assertEquals(contentTypeFromPath("PHOTO.JPG"), "image/jpeg");
-});
-
-Deno.test("contentTypeFromPath handles path with directories", () => {
+Deno.test("resolveBucket returns method arg when both provided", () => {
   assertEquals(
-    contentTypeFromPath("/home/user/photos/sunset.png"),
-    "image/png",
+    resolveBucket("method-bucket", "global-bucket"),
+    "method-bucket",
   );
 });
 
-// --- buildKey ---
-
-Deno.test("buildKey uses filename without prefix", () => {
-  assertEquals(buildKey("/home/user/photo.jpg"), "photo.jpg");
+Deno.test("resolveBucket falls back to global when method arg missing", () => {
+  assertEquals(resolveBucket(undefined, "global-bucket"), "global-bucket");
 });
 
-Deno.test("buildKey adds prefix", () => {
-  assertEquals(
-    buildKey("/home/user/photo.jpg", "uploads/images"),
-    "uploads/images/photo.jpg",
+Deno.test("resolveBucket falls back to global when method arg empty", () => {
+  assertEquals(resolveBucket("", "global-bucket"), "global-bucket");
+});
+
+Deno.test("resolveBucket throws when neither provided", () => {
+  assertThrows(
+    () => resolveBucket(undefined, undefined),
+    Error,
+    "No bucket specified",
   );
 });
 
-Deno.test("buildKey strips leading/trailing slashes from prefix", () => {
-  assertEquals(
-    buildKey("/home/user/photo.jpg", "/uploads/images/"),
-    "uploads/images/photo.jpg",
+Deno.test("resolveBucket throws when both are empty strings", () => {
+  assertThrows(
+    () => resolveBucket("", ""),
+    Error,
+    "No bucket specified",
   );
 });
 
-Deno.test("buildKey handles filename-only path", () => {
-  assertEquals(buildKey("photo.jpg", "prefix"), "prefix/photo.jpg");
+// --- resolveKey ---
+
+Deno.test("resolveKey returns key unchanged when no prefix", () => {
+  assertEquals(resolveKey("path/to/file.txt"), "path/to/file.txt");
 });
 
-Deno.test("buildKey handles empty prefix as no prefix", () => {
-  assertEquals(buildKey("/path/to/file.txt"), "file.txt");
+Deno.test("resolveKey returns key unchanged when prefix is undefined", () => {
+  assertEquals(resolveKey("file.txt", undefined), "file.txt");
+});
+
+Deno.test("resolveKey prepends prefix", () => {
+  assertEquals(resolveKey("file.txt", "uploads"), "uploads/file.txt");
+});
+
+Deno.test("resolveKey strips leading/trailing slashes from prefix", () => {
+  assertEquals(resolveKey("file.txt", "/uploads/"), "uploads/file.txt");
+});
+
+Deno.test("resolveKey handles prefix with nested path", () => {
+  assertEquals(resolveKey("file.txt", "a/b/c"), "a/b/c/file.txt");
+});
+
+Deno.test("resolveKey handles empty prefix as no prefix", () => {
+  assertEquals(resolveKey("file.txt", ""), "file.txt");
+});
+
+Deno.test("resolveKey handles prefix that is only slashes", () => {
+  assertEquals(resolveKey("file.txt", "///"), "file.txt");
+});
+
+// --- streamToBytes ---
+
+Deno.test("streamToBytes passes through Uint8Array", async () => {
+  const input = new Uint8Array([1, 2, 3]);
+  const result = await streamToBytes(input);
+  assertEquals(result, input);
+});
+
+Deno.test("streamToBytes encodes string to Uint8Array", async () => {
+  const result = await streamToBytes("hello");
+  assertEquals(result, new TextEncoder().encode("hello"));
+});
+
+Deno.test("streamToBytes drains ReadableStream", async () => {
+  const data = new TextEncoder().encode("stream data");
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(data);
+      controller.close();
+    },
+  });
+  const result = await streamToBytes(stream);
+  assertEquals(result, data);
+});
+
+// --- normalizeObjectMeta ---
+
+Deno.test("normalizeObjectMeta maps all SDK fields", () => {
+  const result = normalizeObjectMeta("my-bucket", "my-key.txt", {
+    ETag: '"abc123"',
+    ContentLength: 1024,
+    ContentType: "text/plain",
+    LastModified: new Date("2025-01-01T00:00:00Z"),
+    VersionId: "v1",
+    StorageClass: "STANDARD",
+  });
+  assertEquals(result, {
+    bucket: "my-bucket",
+    key: "my-key.txt",
+    etag: "abc123",
+    size: 1024,
+    contentType: "text/plain",
+    lastModified: "2025-01-01T00:00:00.000Z",
+    versionId: "v1",
+    storageClass: "STANDARD",
+  });
+});
+
+Deno.test("normalizeObjectMeta handles missing optional fields", () => {
+  const result = normalizeObjectMeta("b", "k.json", {});
+  assertEquals(result, {
+    bucket: "b",
+    key: "k.json",
+    etag: null,
+    size: null,
+    contentType: "application/json",
+    lastModified: null,
+    versionId: null,
+    storageClass: null,
+  });
+});
+
+Deno.test("normalizeObjectMeta strips quotes from ETag", () => {
+  const result = normalizeObjectMeta("b", "k", { ETag: '"quoted"' });
+  assertEquals(result.etag, "quoted");
+});
+
+Deno.test("normalizeObjectMeta handles string LastModified", () => {
+  const result = normalizeObjectMeta("b", "k", {
+    LastModified: "2025-06-15T12:00:00Z",
+  });
+  assertEquals(result.lastModified, "2025-06-15T12:00:00Z");
+});
+
+// --- tagSetToRecord ---
+
+Deno.test("tagSetToRecord converts tag array to record", () => {
+  const result = tagSetToRecord([
+    { Key: "env", Value: "prod" },
+    { Key: "team", Value: "platform" },
+  ]);
+  assertEquals(result, { env: "prod", team: "platform" });
+});
+
+Deno.test("tagSetToRecord handles empty array", () => {
+  assertEquals(tagSetToRecord([]), {});
+});
+
+Deno.test("tagSetToRecord handles missing Value", () => {
+  const result = tagSetToRecord([{ Key: "flag" }]);
+  assertEquals(result, { flag: "" });
+});
+
+Deno.test("tagSetToRecord skips entries without Key", () => {
+  const result = tagSetToRecord([{ Value: "orphan" }]);
+  assertEquals(result, {});
+});
+
+// --- recordToTagSet ---
+
+Deno.test("recordToTagSet converts record to tag array", () => {
+  const result = recordToTagSet({ env: "prod", team: "platform" });
+  assertEquals(result, [
+    { Key: "env", Value: "prod" },
+    { Key: "team", Value: "platform" },
+  ]);
+});
+
+Deno.test("recordToTagSet handles empty record", () => {
+  assertEquals(recordToTagSet({}), []);
 });
