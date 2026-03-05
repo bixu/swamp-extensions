@@ -1,13 +1,11 @@
 import { z } from "npm:zod@4";
 import {
   contentTypeFromPath,
-  createClient,
+  getClientForBucket,
+  listAllBuckets,
   normalizeObjectMeta,
-  recordToTagSet,
   resolveBucket,
   resolveKey,
-  streamToBytes,
-  tagSetToRecord,
 } from "./s3_helpers.ts";
 import { buildKey } from "./s3_utils.ts";
 
@@ -76,21 +74,30 @@ const PresignedUrlSchema = z.object({
   generatedAt: z.string(),
 });
 
-const CommandResultSchema = z.object({
-  command: z.string(),
-  metadata: z.any(),
-  output: z.any(),
-});
-
 // --- Shared argument fragments ---
 
 const BucketArg = z.string().optional().describe(
   "Override the global bucket for this operation",
 );
 
+/** Helper to get a client bound to the resolved bucket. */
+// deno-lint-ignore no-explicit-any
+async function clientForMethod(ga: any, bucket: string) {
+  return await getClientForBucket(
+    {
+      region: ga.region,
+      awsProfile: ga.awsProfile,
+      endpoint: ga.endpoint,
+      forcePathStyle: ga.forcePathStyle,
+      bucket,
+    },
+    bucket,
+  );
+}
+
 export const model = {
   type: "@bixu/s3",
-  version: "2026.03.05.1",
+  version: "2026.03.05.2",
   globalArguments: GlobalArgsSchema,
   resources: {
     object: {
@@ -117,12 +124,6 @@ export const model = {
       lifetime: "infinite" as const,
       garbageCollection: 10,
     },
-    commandResult: {
-      description: "Result from a generic SDK command",
-      schema: CommandResultSchema,
-      lifetime: "infinite" as const,
-      garbageCollection: 10,
-    },
   },
   methods: {
     // ── Tier 1: Core Object Operations ──────────────────────────────
@@ -144,17 +145,12 @@ export const model = {
           .record(z.string(), z.string())
           .optional()
           .describe("User metadata key-value pairs"),
-        storageClass: z.string().optional().describe(
-          "Storage class (STANDARD, INTELLIGENT_TIERING, GLACIER, etc.)",
-        ),
       }),
-      execute: async (args, context) => {
-        const { PutObjectCommand } = await import(
-          "npm:@aws-sdk/client-s3@3"
-        );
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const ga = context.globalArgs;
-        const client = await createClient(ga);
         const bucket = resolveBucket(args.bucket, ga.bucket);
+        const client = await clientForMethod(ga, bucket);
         const key = resolveKey(args.key, ga.prefix);
         const ct = args.contentType || contentTypeFromPath(key);
 
@@ -169,23 +165,16 @@ export const model = {
 
         context.logger.info(`Uploading to s3://${bucket}/${key}`);
 
-        const params: Record<string, unknown> = {
-          Bucket: bucket,
-          Key: key,
-          Body: uploadBody,
-          ContentType: ct,
-        };
-        if (args.metadata) params.Metadata = args.metadata;
-        if (args.storageClass) params.StorageClass = args.storageClass;
-
-        const resp = await client.send(new PutObjectCommand(params));
+        const resp = await client.putObject(key, uploadBody, {
+          metadata: args.metadata,
+          type: ct,
+        });
 
         const data = normalizeObjectMeta(bucket, key, {
-          ETag: resp.ETag,
-          ContentType: ct,
-          VersionId: resp.VersionId,
-          StorageClass: args.storageClass,
-          ContentLength: typeof uploadBody === "string"
+          etag: resp.etag,
+          contentType: ct,
+          versionId: resp.versionId,
+          size: typeof uploadBody === "string"
             ? uploadBody.length
             : uploadBody.byteLength,
         });
@@ -207,28 +196,30 @@ export const model = {
           "Specific version ID to retrieve",
         ),
       }),
-      execute: async (args, context) => {
-        const { GetObjectCommand } = await import(
-          "npm:@aws-sdk/client-s3@3"
-        );
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const ga = context.globalArgs;
-        const client = await createClient(ga);
         const bucket = resolveBucket(args.bucket, ga.bucket);
+        const client = await clientForMethod(ga, bucket);
         const key = resolveKey(args.key, ga.prefix);
 
-        const params: Record<string, unknown> = { Bucket: bucket, Key: key };
-        if (args.versionId) params.VersionId = args.versionId;
-
         context.logger.info(`Getting s3://${bucket}/${key}`);
-        const resp = await client.send(new GetObjectCommand(params));
+        const resp = await client.getObject(key, {
+          versionId: args.versionId,
+        });
 
-        const bytes = await streamToBytes(resp.Body);
         if (args.file) {
+          const bytes = new Uint8Array(await resp.arrayBuffer());
           await Deno.writeFile(args.file, bytes);
           context.logger.info(`Saved to ${args.file}`);
         }
 
-        const data = normalizeObjectMeta(bucket, key, resp);
+        const data = normalizeObjectMeta(bucket, key, {
+          etag: resp.headers.get("etag") ?? undefined,
+          size: Number(resp.headers.get("content-length")) || undefined,
+          contentType: resp.headers.get("content-type") ?? undefined,
+          versionId: resp.headers.get("x-amz-version-id") ?? undefined,
+        });
         const handle = await context.writeResource("object", key, data);
         return { dataHandles: [handle] };
       },
@@ -241,22 +232,24 @@ export const model = {
         bucket: BucketArg,
         versionId: z.string().optional().describe("Specific version ID"),
       }),
-      execute: async (args, context) => {
-        const { HeadObjectCommand } = await import(
-          "npm:@aws-sdk/client-s3@3"
-        );
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const ga = context.globalArgs;
-        const client = await createClient(ga);
         const bucket = resolveBucket(args.bucket, ga.bucket);
+        const client = await clientForMethod(ga, bucket);
         const key = resolveKey(args.key, ga.prefix);
 
-        const params: Record<string, unknown> = { Bucket: bucket, Key: key };
-        if (args.versionId) params.VersionId = args.versionId;
-
         context.logger.info(`HEAD s3://${bucket}/${key}`);
-        const resp = await client.send(new HeadObjectCommand(params));
+        const stat = await client.statObject(key, {
+          versionId: args.versionId,
+        });
 
-        const data = normalizeObjectMeta(bucket, key, resp);
+        const data = normalizeObjectMeta(bucket, key, {
+          etag: stat.etag,
+          size: stat.size,
+          lastModified: stat.lastModified,
+          versionId: stat.versionId,
+        });
         const handle = await context.writeResource("object", key, data);
         return { dataHandles: [handle] };
       },
@@ -274,33 +267,24 @@ export const model = {
         ),
         bucket: BucketArg,
       }),
-      execute: async (args, context) => {
-        const { DeleteObjectCommand, DeleteObjectsCommand } = await import(
-          "npm:@aws-sdk/client-s3@3"
-        );
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const ga = context.globalArgs;
-        const client = await createClient(ga);
         const bucket = resolveBucket(args.bucket, ga.bucket);
+        const client = await clientForMethod(ga, bucket);
 
         if (args.keys && args.keys.length > 0) {
-          const objects = args.keys.map((k) => ({
-            Key: resolveKey(k, ga.prefix),
-          }));
           context.logger.info(
-            `Deleting ${objects.length} objects from s3://${bucket}`,
+            `Deleting ${args.keys.length} objects from s3://${bucket}`,
           );
-          await client.send(
-            new DeleteObjectsCommand({
-              Bucket: bucket,
-              Delete: { Objects: objects },
-            }),
-          );
+          for (const k of args.keys) {
+            const key = resolveKey(k, ga.prefix);
+            await client.deleteObject(key);
+          }
         } else if (args.key) {
           const key = resolveKey(args.key, ga.prefix);
           context.logger.info(`Deleting s3://${bucket}/${key}`);
-          await client.send(
-            new DeleteObjectCommand({ Bucket: bucket, Key: key }),
-          );
+          await client.deleteObject(key);
         } else {
           throw new Error("Either key or keys must be provided");
         }
@@ -321,14 +305,12 @@ export const model = {
           "Destination bucket (defaults to global bucket)",
         ),
       }),
-      execute: async (args, context) => {
-        const { CopyObjectCommand } = await import(
-          "npm:@aws-sdk/client-s3@3"
-        );
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const ga = context.globalArgs;
-        const client = await createClient(ga);
         const srcBucket = resolveBucket(args.sourceBucket, ga.bucket);
         const dstBucket = resolveBucket(args.destinationBucket, ga.bucket);
+        const client = await clientForMethod(ga, dstBucket);
         const srcKey = resolveKey(args.sourceKey, ga.prefix);
         const dstKey = resolveKey(args.destinationKey, ga.prefix);
 
@@ -336,18 +318,14 @@ export const model = {
           `Copying s3://${srcBucket}/${srcKey} → s3://${dstBucket}/${dstKey}`,
         );
 
-        const resp = await client.send(
-          new CopyObjectCommand({
-            Bucket: dstBucket,
-            Key: dstKey,
-            CopySource: `${srcBucket}/${srcKey}`,
-          }),
+        const resp = await client.copyObject(
+          { sourceBucketName: srcBucket, sourceKey: srcKey },
+          dstKey,
         );
 
         const data = normalizeObjectMeta(dstBucket, dstKey, {
-          ETag: resp.CopyObjectResult?.ETag,
-          LastModified: resp.CopyObjectResult?.LastModified,
-          VersionId: resp.VersionId,
+          etag: resp.etag,
+          lastModified: resp.lastModified,
         });
         const handle = await context.writeResource("object", dstKey, data);
         return { dataHandles: [handle] };
@@ -367,53 +345,97 @@ export const model = {
         maxKeys: z.number().optional().describe(
           "Maximum number of keys to return (default 1000)",
         ),
-        startAfter: z.string().optional().describe(
-          "Start listing after this key",
-        ),
         bucket: BucketArg,
       }),
-      execute: async (args, context) => {
-        const { ListObjectsV2Command } = await import(
-          "npm:@aws-sdk/client-s3@3"
-        );
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const ga = context.globalArgs;
-        const client = await createClient(ga);
         const bucket = resolveBucket(args.bucket, ga.bucket);
+        const client = await clientForMethod(ga, bucket);
         const prefix = args.prefix
           ? resolveKey(args.prefix, ga.prefix)
           : (ga.prefix || undefined);
 
-        const params: Record<string, unknown> = { Bucket: bucket };
-        if (prefix) params.Prefix = prefix;
-        if (args.delimiter) params.Delimiter = args.delimiter;
-        if (args.maxKeys) params.MaxKeys = args.maxKeys;
-        if (args.startAfter) params.StartAfter = args.startAfter;
-
         context.logger.info(
           `Listing s3://${bucket}/${prefix || ""}`,
         );
-        const resp = await client.send(new ListObjectsV2Command(params));
 
-        const objects = (resp.Contents || []).map(
-          (obj: Record<string, unknown>) => ({
-            key: obj.Key,
-            size: obj.Size,
-            lastModified: obj.LastModified instanceof Date
-              ? obj.LastModified.toISOString()
-              : obj.LastModified ?? null,
-            etag: typeof obj.ETag === "string"
-              ? obj.ETag.replace(/"/g, "")
+        const maxKeys = args.maxKeys || 1000;
+
+        if (args.delimiter) {
+          // Use listObjectsGrouped for delimiter support
+          const objects: Record<string, unknown>[] = [];
+          for await (
+            const item of client.listObjectsGrouped({
+              prefix,
+              delimiter: args.delimiter,
+              pageSize: maxKeys,
+            })
+          ) {
+            if (item.type === "Object") {
+              objects.push({
+                key: item.key,
+                size: item.size,
+                lastModified: item.lastModified
+                  ? item.lastModified.toISOString()
+                  : null,
+                etag: item.etag?.replace(/"/g, "") ?? null,
+                storageClass: null,
+              });
+            } else {
+              // CommonPrefix
+              objects.push({
+                key: item.prefix,
+                size: null,
+                lastModified: null,
+                etag: null,
+                storageClass: null,
+                isPrefix: true,
+              });
+            }
+            if (objects.length >= maxKeys) break;
+          }
+
+          const data = {
+            bucket,
+            prefix: prefix || null,
+            count: objects.length,
+            objects,
+            truncated: objects.length >= maxKeys,
+          };
+          const instanceName = prefix
+            ? `list-${prefix.replace(/\//g, "-")}`
+            : "list";
+          const handle = await context.writeResource(
+            "listing",
+            instanceName,
+            data,
+          );
+          return { dataHandles: [handle] };
+        }
+
+        // Simple flat listing
+        const objects: Record<string, unknown>[] = [];
+        for await (
+          const obj of client.listObjects({ prefix, maxResults: maxKeys })
+        ) {
+          objects.push({
+            key: obj.key,
+            size: obj.size,
+            lastModified: obj.lastModified
+              ? obj.lastModified.toISOString()
               : null,
-            storageClass: obj.StorageClass ?? null,
-          }),
-        );
+            etag: obj.etag?.replace(/"/g, "") ?? null,
+            storageClass: null,
+          });
+        }
 
         const data = {
           bucket,
           prefix: prefix || null,
           count: objects.length,
           objects,
-          truncated: resp.IsTruncated ?? false,
+          truncated: objects.length >= maxKeys,
         };
         const instanceName = prefix
           ? `list-${prefix.replace(/\//g, "-")}`
@@ -441,24 +463,15 @@ export const model = {
           .describe("URL expiry in seconds (default 3600)"),
         bucket: BucketArg,
       }),
-      execute: async (args, context) => {
-        const { GetObjectCommand, PutObjectCommand } = await import(
-          "npm:@aws-sdk/client-s3@3"
-        );
-        const { getSignedUrl } = await import(
-          "npm:@aws-sdk/s3-request-presigner@3"
-        );
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const ga = context.globalArgs;
-        const client = await createClient(ga);
         const bucket = resolveBucket(args.bucket, ga.bucket);
+        const client = await clientForMethod(ga, bucket);
         const key = resolveKey(args.key, ga.prefix);
 
-        const command = args.method === "PUT"
-          ? new PutObjectCommand({ Bucket: bucket, Key: key })
-          : new GetObjectCommand({ Bucket: bucket, Key: key });
-
-        const url = await getSignedUrl(client, command, {
-          expiresIn: args.expiresIn,
+        const url = await client.getPresignedUrl(args.method, key, {
+          expirySeconds: args.expiresIn,
         });
 
         context.logger.info(
@@ -487,28 +500,23 @@ export const model = {
     listBuckets: {
       description: "List all S3 buckets in the account",
       arguments: z.object({}),
-      execute: async (_args, context) => {
-        const { ListBucketsCommand } = await import(
-          "npm:@aws-sdk/client-s3@3"
-        );
+      // deno-lint-ignore no-explicit-any
+      execute: async (_args: any, context: any) => {
         const ga = context.globalArgs;
-        const client = await createClient(ga);
 
         context.logger.info("Listing all S3 buckets");
-        const resp = await client.send(new ListBucketsCommand({}));
+        const buckets = await listAllBuckets(ga);
 
         const handles = [];
-        for (const b of resp.Buckets || []) {
+        for (const b of buckets) {
           const data = {
-            name: b.Name,
+            name: b.name,
             location: null,
-            creationDate: b.CreationDate instanceof Date
-              ? b.CreationDate.toISOString()
-              : b.CreationDate ?? null,
+            creationDate: b.creationDate ? b.creationDate.toISOString() : null,
           };
           const handle = await context.writeResource(
             "bucketInfo",
-            b.Name,
+            b.name,
             data,
           );
           handles.push(handle);
@@ -521,30 +529,18 @@ export const model = {
       description: "Create a new S3 bucket",
       arguments: z.object({
         bucket: z.string().describe("Bucket name to create"),
-        locationConstraint: z.string().optional().describe(
-          "Region constraint (e.g. 'eu-west-1'). Defaults to the client region",
-        ),
       }),
-      execute: async (args, context) => {
-        const { CreateBucketCommand } = await import(
-          "npm:@aws-sdk/client-s3@3"
-        );
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const ga = context.globalArgs;
-        const client = await createClient(ga);
-
-        const params: Record<string, unknown> = { Bucket: args.bucket };
-        if (args.locationConstraint) {
-          params.CreateBucketConfiguration = {
-            LocationConstraint: args.locationConstraint,
-          };
-        }
+        const client = await clientForMethod(ga, args.bucket);
 
         context.logger.info(`Creating bucket ${args.bucket}`);
-        await client.send(new CreateBucketCommand(params));
+        await client.makeBucket(args.bucket);
 
         const data = {
           name: args.bucket,
-          location: args.locationConstraint || ga.region || "us-east-1",
+          location: ga.region || "us-east-1",
           creationDate: new Date().toISOString(),
         };
         const handle = await context.writeResource(
@@ -561,17 +557,13 @@ export const model = {
       arguments: z.object({
         bucket: z.string().describe("Bucket name to delete"),
       }),
-      execute: async (args, context) => {
-        const { DeleteBucketCommand } = await import(
-          "npm:@aws-sdk/client-s3@3"
-        );
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const ga = context.globalArgs;
-        const client = await createClient(ga);
+        const client = await clientForMethod(ga, args.bucket);
 
         context.logger.info(`Deleting bucket ${args.bucket}`);
-        await client.send(
-          new DeleteBucketCommand({ Bucket: args.bucket }),
-        );
+        await client.removeBucket(args.bucket);
 
         return { dataHandles: [] };
       },
@@ -584,16 +576,19 @@ export const model = {
           "Bucket name (defaults to global bucket)",
         ),
       }),
-      execute: async (args, context) => {
-        const { HeadBucketCommand } = await import(
-          "npm:@aws-sdk/client-s3@3"
-        );
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const ga = context.globalArgs;
-        const client = await createClient(ga);
         const bucket = resolveBucket(args.bucket, ga.bucket);
+        const client = await clientForMethod(ga, bucket);
 
         context.logger.info(`HEAD bucket ${bucket}`);
-        await client.send(new HeadBucketCommand({ Bucket: bucket }));
+        const exists = await client.bucketExists(bucket);
+        if (!exists) {
+          throw new Error(
+            `Bucket "${bucket}" does not exist or is not accessible`,
+          );
+        }
 
         const data = {
           name: bucket,
@@ -603,261 +598,6 @@ export const model = {
         const handle = await context.writeResource(
           "bucketInfo",
           bucket,
-          data,
-        );
-        return { dataHandles: [handle] };
-      },
-    },
-
-    // ── Tier 3: Versioning & Tagging ────────────────────────────────
-
-    listVersions: {
-      description: "List object versions in a bucket",
-      arguments: z.object({
-        prefix: z.string().optional().describe("Filter by key prefix"),
-        maxKeys: z.number().optional().describe("Maximum number of versions"),
-        bucket: BucketArg,
-      }),
-      execute: async (args, context) => {
-        const { ListObjectVersionsCommand } = await import(
-          "npm:@aws-sdk/client-s3@3"
-        );
-        const ga = context.globalArgs;
-        const client = await createClient(ga);
-        const bucket = resolveBucket(args.bucket, ga.bucket);
-        const prefix = args.prefix
-          ? resolveKey(args.prefix, ga.prefix)
-          : (ga.prefix || undefined);
-
-        const params: Record<string, unknown> = { Bucket: bucket };
-        if (prefix) params.Prefix = prefix;
-        if (args.maxKeys) params.MaxKeys = args.maxKeys;
-
-        context.logger.info(
-          `Listing versions in s3://${bucket}/${prefix || ""}`,
-        );
-        const resp = await client.send(
-          new ListObjectVersionsCommand(params),
-        );
-
-        const objects = (resp.Versions || []).map(
-          (v: Record<string, unknown>) => ({
-            key: v.Key,
-            versionId: v.VersionId,
-            size: v.Size,
-            lastModified: v.LastModified instanceof Date
-              ? v.LastModified.toISOString()
-              : v.LastModified ?? null,
-            isLatest: v.IsLatest ?? false,
-            etag: typeof v.ETag === "string" ? v.ETag.replace(/"/g, "") : null,
-          }),
-        );
-
-        const data = {
-          bucket,
-          prefix: prefix || null,
-          count: objects.length,
-          objects,
-          truncated: resp.IsTruncated ?? false,
-        };
-        const instanceName = prefix
-          ? `versions-${prefix.replace(/\//g, "-")}`
-          : "versions";
-        const handle = await context.writeResource(
-          "listing",
-          instanceName,
-          data,
-        );
-        return { dataHandles: [handle] };
-      },
-    },
-
-    getTagging: {
-      description:
-        "Get tags for an object or bucket. Provide key for object tags, omit for bucket tags",
-      arguments: z.object({
-        key: z.string().optional().describe(
-          "Object key (omit for bucket-level tags)",
-        ),
-        bucket: BucketArg,
-      }),
-      execute: async (args, context) => {
-        const { GetObjectTaggingCommand, GetBucketTaggingCommand } =
-          await import("npm:@aws-sdk/client-s3@3");
-        const ga = context.globalArgs;
-        const client = await createClient(ga);
-        const bucket = resolveBucket(args.bucket, ga.bucket);
-
-        let tags: Record<string, string>;
-        if (args.key) {
-          const key = resolveKey(args.key, ga.prefix);
-          context.logger.info(
-            `Getting tags for s3://${bucket}/${key}`,
-          );
-          const resp = await client.send(
-            new GetObjectTaggingCommand({ Bucket: bucket, Key: key }),
-          );
-          tags = tagSetToRecord(resp.TagSet || []);
-        } else {
-          context.logger.info(`Getting tags for bucket ${bucket}`);
-          const resp = await client.send(
-            new GetBucketTaggingCommand({ Bucket: bucket }),
-          );
-          tags = tagSetToRecord(resp.TagSet || []);
-        }
-
-        const data = {
-          command: args.key ? "GetObjectTagging" : "GetBucketTagging",
-          metadata: { bucket, key: args.key || null },
-          output: tags,
-        };
-        const instanceName = args.key ? `tags-${args.key}` : "bucket-tags";
-        const handle = await context.writeResource(
-          "commandResult",
-          instanceName,
-          data,
-        );
-        return { dataHandles: [handle] };
-      },
-    },
-
-    putTagging: {
-      description:
-        "Set tags on an object or bucket. Provide key for object tags, omit for bucket tags",
-      arguments: z.object({
-        key: z.string().optional().describe(
-          "Object key (omit for bucket-level tags)",
-        ),
-        tags: z
-          .record(z.string(), z.string())
-          .describe("Tag key-value pairs"),
-        bucket: BucketArg,
-      }),
-      execute: async (args, context) => {
-        const { PutObjectTaggingCommand, PutBucketTaggingCommand } =
-          await import("npm:@aws-sdk/client-s3@3");
-        const ga = context.globalArgs;
-        const client = await createClient(ga);
-        const bucket = resolveBucket(args.bucket, ga.bucket);
-        const tagSet = recordToTagSet(args.tags);
-
-        if (args.key) {
-          const key = resolveKey(args.key, ga.prefix);
-          context.logger.info(
-            `Setting tags on s3://${bucket}/${key}`,
-          );
-          await client.send(
-            new PutObjectTaggingCommand({
-              Bucket: bucket,
-              Key: key,
-              Tagging: { TagSet: tagSet },
-            }),
-          );
-        } else {
-          context.logger.info(`Setting tags on bucket ${bucket}`);
-          await client.send(
-            new PutBucketTaggingCommand({
-              Bucket: bucket,
-              Tagging: { TagSet: tagSet },
-            }),
-          );
-        }
-
-        const data = {
-          command: args.key ? "PutObjectTagging" : "PutBucketTagging",
-          metadata: { bucket, key: args.key || null, tags: args.tags },
-          output: { success: true },
-        };
-        const instanceName = args.key ? `tags-${args.key}` : "bucket-tags";
-        const handle = await context.writeResource(
-          "commandResult",
-          instanceName,
-          data,
-        );
-        return { dataHandles: [handle] };
-      },
-    },
-
-    getVersioning: {
-      description: "Get the versioning configuration for a bucket",
-      arguments: z.object({
-        bucket: BucketArg,
-      }),
-      execute: async (args, context) => {
-        const { GetBucketVersioningCommand } = await import(
-          "npm:@aws-sdk/client-s3@3"
-        );
-        const ga = context.globalArgs;
-        const client = await createClient(ga);
-        const bucket = resolveBucket(args.bucket, ga.bucket);
-
-        context.logger.info(`Getting versioning for bucket ${bucket}`);
-        const resp = await client.send(
-          new GetBucketVersioningCommand({ Bucket: bucket }),
-        );
-
-        const data = {
-          command: "GetBucketVersioning",
-          metadata: { bucket },
-          output: {
-            status: resp.Status ?? "Disabled",
-            mfaDelete: resp.MFADelete ?? "Disabled",
-          },
-        };
-        const handle = await context.writeResource(
-          "commandResult",
-          `versioning-${bucket}`,
-          data,
-        );
-        return { dataHandles: [handle] };
-      },
-    },
-
-    // ── Escape Hatch ────────────────────────────────────────────────
-
-    command: {
-      description:
-        "Execute any @aws-sdk/client-s3 command by class name. Covers all ~90 SDK commands not wrapped above",
-      arguments: z.object({
-        command: z.string().describe(
-          "SDK command class name (e.g. 'PutBucketCorsCommand', 'GetBucketPolicyCommand')",
-        ),
-        input: z
-          .record(z.string(), z.any())
-          .default({})
-          .describe("Command input object (passed directly to the SDK)"),
-      }),
-      execute: async (args, context) => {
-        const sdk = await import("npm:@aws-sdk/client-s3@3");
-        const ga = context.globalArgs;
-        const client = await createClient(ga);
-
-        const CommandClass = (sdk as Record<string, unknown>)[args.command];
-        if (typeof CommandClass !== "function") {
-          throw new Error(
-            `Unknown SDK command: ${args.command}. ` +
-              `Must be a valid @aws-sdk/client-s3 command class name.`,
-          );
-        }
-
-        context.logger.info(`Executing ${args.command}`);
-        const resp = await client.send(
-          new (CommandClass as new (input: unknown) => unknown)(
-            args.input,
-          ) as never,
-        );
-
-        // Strip SDK metadata noise, keep the useful output
-        const { $metadata, ...output } = resp as Record<string, unknown>;
-
-        const data = {
-          command: args.command,
-          metadata: $metadata,
-          output,
-        };
-        const handle = await context.writeResource(
-          "commandResult",
-          args.command,
           data,
         );
         return { dataHandles: [handle] };

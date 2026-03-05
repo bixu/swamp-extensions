@@ -1,14 +1,13 @@
 import {
   assertEquals,
+  assertRejects,
   assertThrows,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   normalizeObjectMeta,
-  recordToTagSet,
   resolveBucket,
+  resolveCredentials,
   resolveKey,
-  streamToBytes,
-  tagSetToRecord,
 } from "./s3_helpers.ts";
 
 // --- resolveBucket ---
@@ -74,41 +73,85 @@ Deno.test("resolveKey handles prefix that is only slashes", () => {
   assertEquals(resolveKey("file.txt", "///"), "file.txt");
 });
 
-// --- streamToBytes ---
+// --- resolveCredentials ---
 
-Deno.test("streamToBytes passes through Uint8Array", async () => {
-  const input = new Uint8Array([1, 2, 3]);
-  const result = await streamToBytes(input);
-  assertEquals(result, input);
+Deno.test("resolveCredentials reads from env when no profile", async () => {
+  const origAccess = Deno.env.get("AWS_ACCESS_KEY_ID");
+  const origSecret = Deno.env.get("AWS_SECRET_ACCESS_KEY");
+  const origSession = Deno.env.get("AWS_SESSION_TOKEN");
+
+  try {
+    Deno.env.set("AWS_ACCESS_KEY_ID", "AKIATEST");
+    Deno.env.set("AWS_SECRET_ACCESS_KEY", "secret123");
+    Deno.env.delete("AWS_SESSION_TOKEN");
+
+    const creds = await resolveCredentials();
+    assertEquals(creds.accessKey, "AKIATEST");
+    assertEquals(creds.secretKey, "secret123");
+    assertEquals(creds.sessionToken, undefined);
+  } finally {
+    if (origAccess) Deno.env.set("AWS_ACCESS_KEY_ID", origAccess);
+    else Deno.env.delete("AWS_ACCESS_KEY_ID");
+    if (origSecret) Deno.env.set("AWS_SECRET_ACCESS_KEY", origSecret);
+    else Deno.env.delete("AWS_SECRET_ACCESS_KEY");
+    if (origSession) Deno.env.set("AWS_SESSION_TOKEN", origSession);
+    else Deno.env.delete("AWS_SESSION_TOKEN");
+  }
 });
 
-Deno.test("streamToBytes encodes string to Uint8Array", async () => {
-  const result = await streamToBytes("hello");
-  assertEquals(result, new TextEncoder().encode("hello"));
+Deno.test("resolveCredentials includes session token from env", async () => {
+  const origAccess = Deno.env.get("AWS_ACCESS_KEY_ID");
+  const origSecret = Deno.env.get("AWS_SECRET_ACCESS_KEY");
+  const origSession = Deno.env.get("AWS_SESSION_TOKEN");
+
+  try {
+    Deno.env.set("AWS_ACCESS_KEY_ID", "AKIATEST");
+    Deno.env.set("AWS_SECRET_ACCESS_KEY", "secret123");
+    Deno.env.set("AWS_SESSION_TOKEN", "token456");
+
+    const creds = await resolveCredentials();
+    assertEquals(creds.accessKey, "AKIATEST");
+    assertEquals(creds.secretKey, "secret123");
+    assertEquals(creds.sessionToken, "token456");
+  } finally {
+    if (origAccess) Deno.env.set("AWS_ACCESS_KEY_ID", origAccess);
+    else Deno.env.delete("AWS_ACCESS_KEY_ID");
+    if (origSecret) Deno.env.set("AWS_SECRET_ACCESS_KEY", origSecret);
+    else Deno.env.delete("AWS_SECRET_ACCESS_KEY");
+    if (origSession) Deno.env.set("AWS_SESSION_TOKEN", origSession);
+    else Deno.env.delete("AWS_SESSION_TOKEN");
+  }
 });
 
-Deno.test("streamToBytes drains ReadableStream", async () => {
-  const data = new TextEncoder().encode("stream data");
-  const stream = new ReadableStream({
-    start(controller) {
-      controller.enqueue(data);
-      controller.close();
-    },
-  });
-  const result = await streamToBytes(stream);
-  assertEquals(result, data);
+Deno.test("resolveCredentials throws when env vars missing", async () => {
+  const origAccess = Deno.env.get("AWS_ACCESS_KEY_ID");
+  const origSecret = Deno.env.get("AWS_SECRET_ACCESS_KEY");
+
+  try {
+    Deno.env.delete("AWS_ACCESS_KEY_ID");
+    Deno.env.delete("AWS_SECRET_ACCESS_KEY");
+
+    await assertRejects(
+      () => resolveCredentials(),
+      Error,
+      "No AWS credentials found",
+    );
+  } finally {
+    if (origAccess) Deno.env.set("AWS_ACCESS_KEY_ID", origAccess);
+    if (origSecret) Deno.env.set("AWS_SECRET_ACCESS_KEY", origSecret);
+  }
 });
 
 // --- normalizeObjectMeta ---
 
-Deno.test("normalizeObjectMeta maps all SDK fields", () => {
+Deno.test("normalizeObjectMeta maps all fields", () => {
   const result = normalizeObjectMeta("my-bucket", "my-key.txt", {
-    ETag: '"abc123"',
-    ContentLength: 1024,
-    ContentType: "text/plain",
-    LastModified: new Date("2025-01-01T00:00:00Z"),
-    VersionId: "v1",
-    StorageClass: "STANDARD",
+    etag: '"abc123"',
+    size: 1024,
+    contentType: "text/plain",
+    lastModified: new Date("2025-01-01T00:00:00Z"),
+    versionId: "v1",
+    storageClass: "STANDARD",
   });
   assertEquals(result, {
     bucket: "my-bucket",
@@ -136,52 +179,14 @@ Deno.test("normalizeObjectMeta handles missing optional fields", () => {
   });
 });
 
-Deno.test("normalizeObjectMeta strips quotes from ETag", () => {
-  const result = normalizeObjectMeta("b", "k", { ETag: '"quoted"' });
+Deno.test("normalizeObjectMeta strips quotes from etag", () => {
+  const result = normalizeObjectMeta("b", "k", { etag: '"quoted"' });
   assertEquals(result.etag, "quoted");
 });
 
-Deno.test("normalizeObjectMeta handles string LastModified", () => {
+Deno.test("normalizeObjectMeta handles string lastModified", () => {
   const result = normalizeObjectMeta("b", "k", {
-    LastModified: "2025-06-15T12:00:00Z",
+    lastModified: "2025-06-15T12:00:00Z",
   });
   assertEquals(result.lastModified, "2025-06-15T12:00:00Z");
-});
-
-// --- tagSetToRecord ---
-
-Deno.test("tagSetToRecord converts tag array to record", () => {
-  const result = tagSetToRecord([
-    { Key: "env", Value: "prod" },
-    { Key: "team", Value: "platform" },
-  ]);
-  assertEquals(result, { env: "prod", team: "platform" });
-});
-
-Deno.test("tagSetToRecord handles empty array", () => {
-  assertEquals(tagSetToRecord([]), {});
-});
-
-Deno.test("tagSetToRecord handles missing Value", () => {
-  const result = tagSetToRecord([{ Key: "flag" }]);
-  assertEquals(result, { flag: "" });
-});
-
-Deno.test("tagSetToRecord skips entries without Key", () => {
-  const result = tagSetToRecord([{ Value: "orphan" }]);
-  assertEquals(result, {});
-});
-
-// --- recordToTagSet ---
-
-Deno.test("recordToTagSet converts record to tag array", () => {
-  const result = recordToTagSet({ env: "prod", team: "platform" });
-  assertEquals(result, [
-    { Key: "env", Value: "prod" },
-    { Key: "team", Value: "platform" },
-  ]);
-});
-
-Deno.test("recordToTagSet handles empty record", () => {
-  assertEquals(recordToTagSet({}), []);
 });
