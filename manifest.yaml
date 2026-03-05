@@ -1,0 +1,10 @@
+manifestVersion: 1
+name: "@bixu/s3"
+version: "2026.03.05.2"
+description: "S3 object storage operations with pure-TS presigning and ListBuckets"
+models:
+  - s3.ts
+labels:
+  - aws
+  - s3
+  - storage
