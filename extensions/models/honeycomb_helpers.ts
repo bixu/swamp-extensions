@@ -63,7 +63,7 @@ export function authHeaders(
   return {
     Authorization: `Bearer ${apiKeyId}:${apiKeySecret}`,
     Accept: "application/vnd.api+json",
-    "Content-Type": "application/json",
+    "Content-Type": "application/vnd.api+json",
   };
 }
 

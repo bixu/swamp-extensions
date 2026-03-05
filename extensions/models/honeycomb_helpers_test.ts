@@ -73,7 +73,7 @@ Deno.test("authHeaders includes JSON:API accept header", () => {
 
 Deno.test("authHeaders includes content-type header", () => {
   const headers = authHeaders("id", "secret");
-  assertEquals(headers["Content-Type"], "application/json");
+  assertEquals(headers["Content-Type"], "application/vnd.api+json");
 });
 
 // --- resourceUrl ---
