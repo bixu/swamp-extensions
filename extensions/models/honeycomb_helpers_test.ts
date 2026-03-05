@@ -581,6 +581,73 @@ Deno.test("resolveV1Request throws when dataset missing for derived-columns", ()
   assertEquals(threw, true);
 });
 
+Deno.test("resolveV1Request resolves markers with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "markers",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/markers/my-ds");
+});
+
+Deno.test("resolveV1Request throws when dataset missing for markers", () => {
+  let threw = false;
+  try {
+    resolveV1Request("https://api.honeycomb.io", "markers");
+  } catch (e) {
+    threw = true;
+    assertEquals(
+      (e as Error).message,
+      'Resource "markers" requires a dataset argument',
+    );
+  }
+  assertEquals(threw, true);
+});
+
+Deno.test("resolveV1Request resolves marker-settings with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "marker-settings",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/marker_settings/my-ds");
+});
+
+Deno.test("resolveV1Request resolves slos with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "slos",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/slos/my-ds");
+});
+
+Deno.test("resolveV1Request resolves burn-alerts with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "burn-alerts",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/burn_alerts/my-ds");
+});
+
+Deno.test("resolveV1Request resolves query-annotations with dataset slug", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "query-annotations",
+    "my-ds",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/query_annotations/my-ds");
+});
+
+Deno.test("resolveV1Request resolves auth without dataset", () => {
+  const url = resolveV1Request(
+    "https://api.honeycomb.io",
+    "auth",
+  );
+  assertEquals(url, "https://api.honeycomb.io/1/auth");
+});
+
 // --- mapV1Item ---
 
 Deno.test("mapV1Item uses slug as instanceName when available", () => {

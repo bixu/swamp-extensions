@@ -222,11 +222,20 @@ export const V1_RESOURCE_REGISTRY: Record<
   "recipients": { datasetScoped: false },
   "columns": { datasetScoped: true },
   "derived-columns": { datasetScoped: true },
+  "markers": { datasetScoped: true },
+  "marker-settings": { datasetScoped: true },
+  "slos": { datasetScoped: true },
+  "burn-alerts": { datasetScoped: true },
+  "query-annotations": { datasetScoped: true },
+  "auth": { datasetScoped: false, readOnly: true },
 };
 
 const V1_API_PATH_MAP: Record<string, string> = {
   "dataset-definitions": "dataset_definitions",
   "derived-columns": "derived_columns",
+  "marker-settings": "marker_settings",
+  "burn-alerts": "burn_alerts",
+  "query-annotations": "query_annotations",
 };
 
 export function resolveV1Request(

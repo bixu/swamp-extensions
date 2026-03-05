@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@bixu/honeycomb"
-version: "2026.03.05.1"
+version: "2026.03.06.1"
 description: "Honeycomb observability platform — manage environments, datasets, triggers, boards, columns, and more via v1 and v2 APIs"
 models:
   - honeycomb.ts
