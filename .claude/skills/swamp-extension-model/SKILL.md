@@ -10,11 +10,18 @@ startup.
 
 ## When to Create a Custom Model
 
-**Create an extension model when no built-in type exists for your use case.**
+**Create an extension model when no built-in or community type exists for your
+use case.**
 
-If you search for a type with `swamp model type search <query>` and get no
-results, you should create a custom model rather than assuming the functionality
-doesn't exist. Extension models let you:
+Before creating a custom model, always check both local types and community
+extensions:
+
+1. Search local types: `swamp model type search <query>`
+2. Search community extensions: `swamp extension search <query>`
+3. If a community extension exists, install it instead of building from scratch
+4. Only create a custom model if nothing exists locally or in the community
+
+Extension models let you:
 
 - Integrate with any API or service (AWS S3, Stripe, custom APIs, etc.)
 - Define any automation logic you need
@@ -23,9 +30,10 @@ doesn't exist. Extension models let you:
 **Example decision flow:**
 
 ```
-1. User wants to work with S3 buckets
-2. Run: swamp model type search S3 → no results
-3. Solution: Create extensions/models/s3_bucket.ts with the S3 logic you need
+User wants to work with S3 buckets
+swamp model type search S3 → no local results
+swamp extension search S3 → no community extension
+No existing model → Create extensions/models/s3_bucket.ts
 ```
 
 **Important:** Do not default to generic CLI types (like `command/shell`) for
@@ -37,11 +45,17 @@ than wrapping CLI commands.
 
 | Task                | Command/Action                                          |
 | ------------------- | ------------------------------------------------------- |
+| Search community    | `swamp extension search <query>`                        |
 | Create model file   | Create `extensions/models/my_model.ts`                  |
 | Verify registration | `swamp model type search --json`                        |
 | Check schema        | `swamp model type describe @myorg/my-model --json`      |
 | Create instance     | `swamp model create @myorg/my-model my-instance --json` |
 | Run method          | `swamp model method run my-instance run --json`         |
+| Create manifest     | Create `manifest.yaml` with model/workflow entries      |
+| Format extension    | `swamp extension fmt manifest.yaml`                     |
+| Check formatting    | `swamp extension fmt manifest.yaml --check`             |
+| Push extension      | `swamp extension push manifest.yaml`                    |
+| Dry-run push        | `swamp extension push manifest.yaml --dry-run`          |
 
 ## Quick Start
 
@@ -303,6 +317,43 @@ Swamp discovers models and extensions recursively:
 Files are classified by export name: `export const model` defines new types,
 `export const extension` adds methods to existing types.
 
+## Publishing Extensions
+
+Extensions are published to the swamp registry via a `manifest.yaml` and the
+`swamp extension push` command.
+
+**Minimal manifest:**
+
+```yaml
+manifestVersion: 1
+name: "@myorg/my-model"
+version: "2026.02.26.1"
+models:
+  - my_model.ts
+```
+
+**Push commands:**
+
+```bash
+swamp extension push manifest.yaml              # Push to registry
+swamp extension push manifest.yaml --dry-run    # Validate without pushing
+swamp extension push manifest.yaml -y           # Skip confirmation prompts
+```
+
+The manifest `name` namespace must match your authenticated username. Model
+paths are relative to `extensions/models/`; local imports are auto-resolved.
+
+**Optional metadata fields:**
+
+- `platforms` — OS/architecture hints (e.g. `darwin-aarch64`, `linux-x86_64`).
+  Use when your extension contains platform-specific code.
+- `labels` — Categorization labels (e.g. `aws`, `kubernetes`, `security`).
+
+Both are omitted from the archive when not specified.
+
+For the full manifest schema, safety rules, CalVer versioning, and
+troubleshooting, see [references/publishing.md](references/publishing.md).
+
 ## Key Rules
 
 1. **Export**: Use `export const model = { ... }` for new types or
@@ -311,21 +362,28 @@ Files are classified by export name: `export const model` defines new types,
    Deno-compatible import (`npm:`, `jsr:`, `https://`) can also be used — swamp
    bundles all dependencies automatically (see
    [references/examples.md](references/examples.md#using-external-dependencies))
-3. **Type naming**: Use `@<namespace>/<name>` format (e.g., `@user/my-model`)
-4. **No type annotations**: Avoid TypeScript types in execute parameters
-5. **File naming**: Use snake_case (`my_model.ts`)
+3. **Pin npm versions**: Always pin explicit versions for npm imports (e.g.,
+   `npm:lodash-es@4.17.21`, not `npm:lodash-es`). Swamp does not use a lockfile
+   during bundling, so unpinned versions may resolve differently across runs.
+   `npm:zod@4` is the one exception — it is externalized and provided by swamp.
+4. **Type naming**: Use `@<namespace>/<name>` or `<namespace>/<name>` format
+   (e.g., `@user/my-model` or `myorg/my-model`)
+5. **No type annotations**: Avoid TypeScript types in execute parameters
+6. **File naming**: Use snake_case (`my_model.ts`)
 
 ## Namespace Rules
 
 User-defined models can use any namespace except reserved ones (`swamp`, `si`):
 
-| Type              | Valid? | Notes                    |
-| ----------------- | ------ | ------------------------ |
-| `@user/my-model`  | ✅     | Valid namespace          |
-| `@myorg/deploy`   | ✅     | Custom namespace allowed |
-| `@user/aws/s3`    | ✅     | Nested paths allowed     |
-| `mycompany/model` | ❌     | Missing `@` prefix       |
-| `@swamp/my-model` | ❌     | Reserved namespace       |
+| Type                        | Valid? | Notes                       |
+| --------------------------- | ------ | --------------------------- |
+| `@user/my-model`            | ✅     | Valid namespace             |
+| `@myorg/deploy`             | ✅     | Custom namespace allowed    |
+| `myorg/my-model`            | ✅     | Non-@ format allowed        |
+| `digitalocean/app-platform` | ✅     | Non-@ multi-segment allowed |
+| `@user/aws/s3`              | ✅     | Nested paths allowed        |
+| `swamp/my-model`            | ❌     | Reserved namespace          |
+| `si/my-model`               | ❌     | Reserved namespace          |
 
 ## Verify
 
@@ -354,6 +412,8 @@ swamp model type describe @myorg/my-model   # Check schema
   complete model examples (CRUD lifecycle, data chaining, extensions, etc.)
 - **Scenarios**: See [references/scenarios.md](references/scenarios.md) for
   end-to-end scenarios (custom API, cloud CRUD, factory models)
+- **Publishing**: See [references/publishing.md](references/publishing.md) for
+  manifest schema, push workflow, safety rules, and CalVer versioning
 - **Troubleshooting**: See
   [references/troubleshooting.md](references/troubleshooting.md) for common
   errors and fixes
