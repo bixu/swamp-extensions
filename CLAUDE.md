@@ -9,7 +9,6 @@ This repository is managed with [swamp](https://github.com/systeminit/swamp).
 3. **Use the data model.** Once data exists in a model (via `lookup`, `start`, `sync`, etc.), reference it with CEL expressions. Don't re-fetch data that's already available.
 4. **CEL expressions everywhere.** Wire models together with CEL expressions. Always prefer `data.latest("<name>", "<dataName>").attributes.<field>` over the deprecated `model.<name>.resource.<spec>.<instance>.attributes.<field>` pattern.
 5. **Verify before destructive operations.** Always `swamp model get <name> --json` and verify resource IDs before running delete/stop/destroy methods.
-6. **Tests.*** Tests are more accurate than the code under test. When a test fails, the default assumption is that the Swamp code needs to change, not the test. Never weaken, relax, or update a test to match current swamp behavior unless the user explicitly asks you to.
 
 ## Skills
 
