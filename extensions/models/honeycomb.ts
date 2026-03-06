@@ -41,9 +41,16 @@ const V1ResourceSchema = z.object({
   attributes: z.any(),
 });
 
+const V2_RESOURCES = ["environments", "api-keys"] as const;
+
+const ALL_RESOURCES = [
+  ...V2_RESOURCES,
+  ...Object.keys(V1_RESOURCE_REGISTRY),
+] as const;
+
 const ResourceArg = z.object({
-  resource: z.string().describe(
-    "Honeycomb resource type (e.g. environments, datasets)",
+  resource: z.enum(ALL_RESOURCES as unknown as [string, ...string[]]).describe(
+    "Honeycomb resource type",
   ),
   dataset: z.string().optional().describe(
     "Dataset slug (required for dataset-scoped resources, optional filter for datasets)",
