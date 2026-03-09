@@ -1,0 +1,218 @@
+import { z } from "npm:zod@4";
+import {
+  buildRepoTable,
+  createClient,
+  normalizeRepo,
+} from "./github_helpers.ts";
+
+const GlobalArgsSchema = z.object({
+  token: z.string().describe("GitHub personal access token"),
+  org: z.string().optional().describe(
+    "Default GitHub organization (can be overridden per method)",
+  ),
+  owner: z.string().optional().describe(
+    "Default repository owner for repo-scoped methods",
+  ),
+});
+
+const RepoSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  fullName: z.string(),
+  visibility: z.string(),
+  defaultBranch: z.string(),
+  archived: z.boolean(),
+  disabled: z.boolean(),
+  fork: z.boolean(),
+  description: z.string().nullable(),
+  language: z.string().nullable(),
+  license: z.string().nullable(),
+  topics: z.array(z.string()),
+  openIssuesCount: z.number(),
+  stargazersCount: z.number(),
+  forksCount: z.number(),
+  createdAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+  pushedAt: z.string().nullable(),
+  htmlUrl: z.string(),
+  hasVulnerabilityAlerts: z.boolean().nullable(),
+  secretScanningEnabled: z.boolean(),
+  secretScanningPushProtection: z.boolean(),
+  dependabotSecurityUpdates: z.boolean(),
+}).passthrough();
+
+function resolveOrg(
+  methodOrg: string | undefined,
+  globalOrg: string | undefined,
+): string {
+  const org = methodOrg ?? globalOrg;
+  if (!org) throw new Error("org is required (set globally or per method)");
+  return org;
+}
+
+function resolveOwner(
+  methodOwner: string | undefined,
+  globalOwner: string | undefined,
+  globalOrg: string | undefined,
+): string {
+  const owner = methodOwner ?? globalOwner ?? globalOrg;
+  if (!owner) {
+    throw new Error("owner is required (set globally or per method)");
+  }
+  return owner;
+}
+
+export const model = {
+  type: "@bixu/github/repo",
+  version: "2026.03.09.1",
+  globalArguments: GlobalArgsSchema,
+  resources: {
+    repo: {
+      description: "GitHub repository",
+      schema: RepoSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 10,
+    },
+  },
+  methods: {
+    list: {
+      description: "List repositories for an organization",
+      arguments: z.object({
+        org: z.string().optional().describe("GitHub organization"),
+        type: z.enum(["all", "public", "private", "forks", "sources", "member"])
+          .default("all")
+          .describe("Filter by repo type"),
+        sort: z.enum(["created", "updated", "pushed", "full_name"])
+          .default("full_name")
+          .describe("Sort field"),
+        json: z.boolean().default(false).describe(
+          "Output raw JSON instead of a table",
+        ),
+      }),
+      execute: async (args, context) => {
+        const client = createClient(context.globalArgs.token);
+        const org = resolveOrg(args.org, context.globalArgs.org);
+
+        const repos = await client.paginate(client.rest.repos.listForOrg, {
+          org,
+          per_page: 100,
+          type: args.type,
+          sort: args.sort,
+        });
+
+        const handles = [];
+        const normalized = [];
+        for (const r of repos) {
+          const data = normalizeRepo(r);
+          normalized.push(data);
+          const handle = await context.writeResource(
+            "repo",
+            String(data.name),
+            data,
+          );
+          handles.push(handle);
+        }
+
+        const output = args.json
+          ? JSON.stringify(normalized, null, 2) + "\n"
+          : buildRepoTable(normalized).join("\n") + "\n";
+        await Deno.stdout.write(new TextEncoder().encode(output));
+
+        return { dataHandles: handles };
+      },
+    },
+
+    listForUser: {
+      description:
+        "List repositories for the authenticated user or a specified user",
+      arguments: z.object({
+        username: z.string().optional().describe(
+          "GitHub username (omit to list repos for the authenticated user)",
+        ),
+        type: z.enum(["all", "owner", "member"]).default("owner").describe(
+          "Filter by repo relationship to user",
+        ),
+        sort: z.enum(["created", "updated", "pushed", "full_name"])
+          .default("full_name")
+          .describe("Sort field"),
+        json: z.boolean().default(false).describe(
+          "Output raw JSON instead of a table",
+        ),
+      }),
+      execute: async (args, context) => {
+        const client = createClient(context.globalArgs.token);
+
+        // deno-lint-ignore no-explicit-any
+        let repos: any[];
+        if (args.username) {
+          repos = await client.paginate(client.rest.repos.listForUser, {
+            username: args.username,
+            per_page: 100,
+            type: args.type,
+            sort: args.sort,
+          });
+        } else {
+          repos = await client.paginate(
+            client.rest.repos.listForAuthenticatedUser,
+            {
+              per_page: 100,
+              type: args.type,
+              sort: args.sort,
+            },
+          );
+        }
+
+        const handles = [];
+        const normalized = [];
+        for (const r of repos) {
+          const data = normalizeRepo(r);
+          normalized.push(data);
+          const handle = await context.writeResource(
+            "repo",
+            String(data.name),
+            data,
+          );
+          handles.push(handle);
+        }
+
+        const output = args.json
+          ? JSON.stringify(normalized, null, 2) + "\n"
+          : buildRepoTable(normalized).join("\n") + "\n";
+        await Deno.stdout.write(new TextEncoder().encode(output));
+
+        return { dataHandles: handles };
+      },
+    },
+
+    get: {
+      description: "Get details for a single repository",
+      arguments: z.object({
+        repo: z.string().describe("Repository name"),
+        owner: z.string().optional().describe(
+          "Repository owner (defaults to org or owner global arg)",
+        ),
+      }),
+      execute: async (args, context) => {
+        const client = createClient(context.globalArgs.token);
+        const owner = resolveOwner(
+          args.owner,
+          context.globalArgs.owner,
+          context.globalArgs.org,
+        );
+
+        const { data } = await client.rest.repos.get({
+          owner,
+          repo: args.repo,
+        });
+        const normalized = normalizeRepo(data);
+
+        const handle = await context.writeResource(
+          "repo",
+          String(normalized.name),
+          normalized,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+  },
+};
