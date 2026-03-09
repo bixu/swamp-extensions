@@ -87,8 +87,6 @@ export const model = {
         const client = new Octokit({ auth: context.globalArgs.token });
         const label = args.username ?? "authenticated user";
 
-        context.logger.info(`Scanning repos for user: ${label}`);
-
         const statuses = await fetchUserRepoSecurity(client, args.username);
 
         // Fetch raw repos for summary counts (includes archived/forks)
@@ -149,8 +147,6 @@ export const model = {
       }),
       execute: async (args, context) => {
         const client = new Octokit({ auth: context.globalArgs.token });
-
-        context.logger.info(`Scanning repos for org: ${args.org}`);
 
         const statuses = await fetchOrgRepoSecurity(client, args.org);
 
