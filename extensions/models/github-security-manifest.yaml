@@ -1,0 +1,10 @@
+manifestVersion: 1
+name: "@bixu/github-security"
+version: "2026.03.09.3"
+description: "GitHub repository security auditing with support for native features and third-party tool detection"
+models:
+  - github_security.ts
+labels:
+  - github
+  - security
+  - audit
