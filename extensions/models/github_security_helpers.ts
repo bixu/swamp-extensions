@@ -11,6 +11,11 @@ export interface SecuritySummary {
   secretScanningEnabled: number;
   secretScanningPushProtection: number;
   dependabotSecurityUpdates: number;
+  codeScanningEnabled: number;
+  totalCodeScanningAlerts: number;
+  reposWithSecurityApps: number;
+  reposWithSecurityChecks: number;
+  securityAppCoverage: Record<string, number>;
   reposMissingFeatures: Array<RepoSecurityStatus>;
 }
 
@@ -20,6 +25,34 @@ export interface RepoSecurityStatus {
   secretScanningEnabled: boolean;
   secretScanningPushProtection: boolean;
   dependabotSecurityUpdates: boolean;
+  codeScanningEnabled: boolean;
+  codeScanningAlertCount: number;
+  securityApps: string[];
+  securityChecks: string[];
+}
+
+const SECURITY_APP_PATTERNS = [
+  "snyk",
+  "codeql",
+  "sonarcloud",
+  "sonarqube",
+  "veracode",
+  "checkmarx",
+  "semgrep",
+  "mend",
+  "whitesource",
+  "dependabot",
+  "renovate",
+  "fossa",
+  "bridgecrew",
+  "prisma cloud",
+  "trivy",
+  "grype",
+];
+
+export function isSecurityApp(name: string): boolean {
+  const lower = name.toLowerCase();
+  return SECURITY_APP_PATTERNS.some((p) => lower.includes(p));
 }
 
 // deno-lint-ignore no-explicit-any
@@ -33,7 +66,114 @@ function normalizeSecurityFields(r: any): RepoSecurityStatus {
       sa.secret_scanning_push_protection?.status === "enabled",
     dependabotSecurityUpdates:
       sa.dependabot_security_updates?.status === "enabled",
+    codeScanningEnabled: false,
+    codeScanningAlertCount: 0,
+    securityApps: [],
+    securityChecks: [],
   };
+}
+
+export async function fetchCodeScanningAlerts(
+  client: Octokit,
+  org: string,
+): Promise<Map<string, number>> {
+  const alertsByRepo = new Map<string, number>();
+  try {
+    const alerts = await client.paginate(
+      client.rest.codeScanning.listAlertsForOrg,
+      { org, per_page: 100, state: "open" },
+    );
+    // deno-lint-ignore no-explicit-any
+    for (const a of alerts as any[]) {
+      const repoName = a.repository?.name ?? "unknown";
+      alertsByRepo.set(repoName, (alertsByRepo.get(repoName) ?? 0) + 1);
+    }
+  } catch {
+    // Code scanning may not be available or no alerts exist (404)
+  }
+  return alertsByRepo;
+}
+
+export async function fetchCodeScanningAlertsForRepo(
+  client: Octokit,
+  owner: string,
+  repo: string,
+): Promise<number> {
+  try {
+    const alerts = await client.paginate(
+      client.rest.codeScanning.listAlertsForRepo,
+      { owner, repo, per_page: 100, state: "open" },
+    );
+    return alerts.length;
+  } catch {
+    return 0;
+  }
+}
+
+export async function fetchOrgInstallations(
+  client: Octokit,
+  org: string,
+): Promise<Map<string, Set<string>>> {
+  const appsByRepo = new Map<string, Set<string>>();
+  try {
+    const resp = await client.rest.orgs.listAppInstallations({ org });
+    // deno-lint-ignore no-explicit-any
+    for (const installation of resp.data.installations as any[]) {
+      const appName = installation.app_slug ?? installation.app_id ?? "unknown";
+      if (!isSecurityApp(String(appName))) continue;
+
+      try {
+        const repoResp = await client.rest.apps
+          .listInstallationReposForAuthenticatedUser({
+            installation_id: installation.id,
+            per_page: 100,
+          });
+        // deno-lint-ignore no-explicit-any
+        for (const repo of repoResp.data.repositories as any[]) {
+          const name = repo.name;
+          if (!appsByRepo.has(name)) appsByRepo.set(name, new Set());
+          appsByRepo.get(name)!.add(String(appName));
+        }
+      } catch {
+        // May not have permission to list repos for this installation
+      }
+    }
+  } catch {
+    // May not have permission to list installations
+  }
+  return appsByRepo;
+}
+
+export async function fetchCheckSuitesForRepo(
+  client: Octokit,
+  owner: string,
+  repo: string,
+  defaultBranch: string,
+): Promise<string[]> {
+  try {
+    const resp = await client.rest.checks.listSuitesForRef({
+      owner,
+      repo,
+      ref: defaultBranch,
+      per_page: 100,
+    });
+    const securityApps: string[] = [];
+    // deno-lint-ignore no-explicit-any
+    for (const suite of resp.data.check_suites as any[]) {
+      const appName = suite.app?.slug ?? suite.app?.name ?? "";
+      if (appName && isSecurityApp(String(appName))) {
+        securityApps.push(String(appName));
+      }
+    }
+    return [...new Set(securityApps)];
+  } catch {
+    return [];
+  }
+}
+
+// deno-lint-ignore no-explicit-any
+function filterActiveRepos(repos: any[]): any[] {
+  return repos.filter((r) => !r.archived && !r.disabled && !r.fork);
 }
 
 export async function fetchUserRepoSecurity(
@@ -54,9 +194,34 @@ export async function fetchUserRepoSecurity(
       { per_page: 100, type: "owner" },
     );
   }
-  return repos
-    .filter((r) => !r.archived && !r.disabled && !r.fork)
-    .map(normalizeSecurityFields);
+
+  const active = filterActiveRepos(repos);
+  const statuses = active.map(normalizeSecurityFields);
+
+  // Enrich with check suites per repo (no org-level code scanning for users)
+  const owner = username ??
+    (await client.rest.users.getAuthenticated()).data.login;
+  for (let i = 0; i < active.length; i++) {
+    const r = active[i];
+    const alertCount = await fetchCodeScanningAlertsForRepo(
+      client,
+      owner,
+      r.name,
+    );
+    statuses[i].codeScanningAlertCount = alertCount;
+    statuses[i].codeScanningEnabled = alertCount > 0;
+
+    const checks = await fetchCheckSuitesForRepo(
+      client,
+      owner,
+      r.name,
+      r.default_branch,
+    );
+    statuses[i].securityChecks = checks;
+    statuses[i].securityApps = checks;
+  }
+
+  return statuses;
 }
 
 export async function fetchOrgRepoSecurity(
@@ -68,9 +233,43 @@ export async function fetchOrgRepoSecurity(
     per_page: 100,
     type: "all",
   });
-  return repos
-    .filter((r) => !r.archived && !r.disabled && !r.fork)
-    .map(normalizeSecurityFields);
+
+  const active = filterActiveRepos(repos);
+  const statuses = active.map(normalizeSecurityFields);
+
+  // Code scanning alerts (org-level, single paginated call)
+  const alertsByRepo = await fetchCodeScanningAlerts(client, org);
+  for (const status of statuses) {
+    const count = alertsByRepo.get(status.name) ?? 0;
+    status.codeScanningAlertCount = count;
+    status.codeScanningEnabled = alertsByRepo.has(status.name) || count > 0;
+  }
+
+  // App installations (org-level)
+  const appsByRepo = await fetchOrgInstallations(client, org);
+  for (const status of statuses) {
+    const apps = appsByRepo.get(status.name);
+    if (apps) {
+      status.securityApps = [...apps];
+    }
+  }
+
+  // Check suites per repo for security CI checks
+  for (let i = 0; i < active.length; i++) {
+    const r = active[i];
+    const checks = await fetchCheckSuitesForRepo(
+      client,
+      org,
+      r.name,
+      r.default_branch,
+    );
+    // Merge with apps from installations (deduplicate)
+    const allApps = new Set([...statuses[i].securityApps, ...checks]);
+    statuses[i].securityApps = [...allApps];
+    statuses[i].securityChecks = checks;
+  }
+
+  return statuses;
 }
 
 export function buildSecuritySummary(
@@ -88,6 +287,23 @@ export function buildSecuritySummary(
   const pp = allRepoStatuses.filter((r) => r.secretScanningPushProtection)
     .length;
   const db = allRepoStatuses.filter((r) => r.dependabotSecurityUpdates).length;
+  const cs = allRepoStatuses.filter((r) => r.codeScanningEnabled).length;
+  const totalAlerts = allRepoStatuses.reduce(
+    (sum, r) => sum + r.codeScanningAlertCount,
+    0,
+  );
+  const withApps = allRepoStatuses.filter((r) => r.securityApps.length > 0)
+    .length;
+  const withChecks = allRepoStatuses.filter(
+    (r) => r.securityChecks.length > 0,
+  ).length;
+
+  const appCoverage: Record<string, number> = {};
+  for (const r of allRepoStatuses) {
+    for (const app of r.securityApps) {
+      appCoverage[app] = (appCoverage[app] ?? 0) + 1;
+    }
+  }
 
   const missing = allRepoStatuses.filter(
     (r) =>
@@ -107,6 +323,11 @@ export function buildSecuritySummary(
     secretScanningEnabled: ss,
     secretScanningPushProtection: pp,
     dependabotSecurityUpdates: db,
+    codeScanningEnabled: cs,
+    totalCodeScanningAlerts: totalAlerts,
+    reposWithSecurityApps: withApps,
+    reposWithSecurityChecks: withChecks,
+    securityAppCoverage: appCoverage,
     reposMissingFeatures: missing,
   };
 }
@@ -124,7 +345,7 @@ export function buildSecurityTable(summary: SecuritySummary): string[] {
   lines.push(`  Public: ${summary.publicRepos}`);
   lines.push(`  Private: ${summary.privateRepos}`);
   lines.push("");
-  lines.push("=== Security Features (active owned repos) ===");
+  lines.push("=== GitHub Security Features (active owned repos) ===");
   lines.push("");
   lines.push(
     `Secret scanning enabled:          ${summary.secretScanningEnabled} / ${summary.ownedRepos}`,
@@ -135,11 +356,36 @@ export function buildSecurityTable(summary: SecuritySummary): string[] {
   lines.push(
     `Dependabot security updates:      ${summary.dependabotSecurityUpdates} / ${summary.ownedRepos}`,
   );
+  lines.push(
+    `Code scanning (alerts present):   ${summary.codeScanningEnabled} / ${summary.ownedRepos}`,
+  );
+  lines.push(
+    `Total open code scanning alerts:  ${summary.totalCodeScanningAlerts}`,
+  );
+  lines.push("");
+  lines.push("=== Third-Party Security Tools ===");
+  lines.push("");
+  lines.push(
+    `Repos with security apps:         ${summary.reposWithSecurityApps} / ${summary.ownedRepos}`,
+  );
+  lines.push(
+    `Repos with security CI checks:    ${summary.reposWithSecurityChecks} / ${summary.ownedRepos}`,
+  );
+
+  const appEntries = Object.entries(summary.securityAppCoverage).sort(
+    (a, b) => b[1] - a[1],
+  );
+  if (appEntries.length > 0) {
+    lines.push("");
+    for (const [app, count] of appEntries) {
+      lines.push(`  ${app}: ${count} repos`);
+    }
+  }
 
   const missing = summary.reposMissingFeatures;
   if (missing.length > 0) {
     lines.push("");
-    lines.push("=== Repos Missing Security Features ===");
+    lines.push("=== Repos Missing GitHub Security Features ===");
     lines.push("");
     const hdr = [
       "Repository".padEnd(35),
@@ -147,6 +393,7 @@ export function buildSecurityTable(summary: SecuritySummary): string[] {
       "SecScan".padEnd(9),
       "PushProt".padEnd(9),
       "Depbot".padEnd(7),
+      "Apps".padEnd(20),
     ].join(" ");
     lines.push(hdr);
     lines.push("-".repeat(hdr.length));
@@ -158,6 +405,8 @@ export function buildSecurityTable(summary: SecuritySummary): string[] {
         (r.secretScanningEnabled ? "yes" : "NO").padEnd(9),
         (r.secretScanningPushProtection ? "yes" : "NO").padEnd(9),
         (r.dependabotSecurityUpdates ? "yes" : "NO").padEnd(7),
+        (r.securityApps.length > 0 ? r.securityApps.join(",") : "-").padEnd(20)
+          .slice(0, 20),
       ].join(" "));
     }
   }

@@ -22,12 +22,21 @@ const SummarySchema = z.object({
   secretScanningEnabled: z.number(),
   secretScanningPushProtection: z.number(),
   dependabotSecurityUpdates: z.number(),
+  codeScanningEnabled: z.number(),
+  totalCodeScanningAlerts: z.number(),
+  reposWithSecurityApps: z.number(),
+  reposWithSecurityChecks: z.number(),
+  securityAppCoverage: z.record(z.string(), z.number()),
   reposMissingFeatures: z.array(z.object({
     name: z.string(),
     visibility: z.string(),
     secretScanningEnabled: z.boolean(),
     secretScanningPushProtection: z.boolean(),
     dependabotSecurityUpdates: z.boolean(),
+    codeScanningEnabled: z.boolean(),
+    codeScanningAlertCount: z.number(),
+    securityApps: z.array(z.string()),
+    securityChecks: z.array(z.string()),
   })),
 }).passthrough();
 
@@ -37,11 +46,15 @@ const RepoStatusSchema = z.object({
   secretScanningEnabled: z.boolean(),
   secretScanningPushProtection: z.boolean(),
   dependabotSecurityUpdates: z.boolean(),
+  codeScanningEnabled: z.boolean(),
+  codeScanningAlertCount: z.number(),
+  securityApps: z.array(z.string()),
+  securityChecks: z.array(z.string()),
 }).passthrough();
 
 export const model = {
   type: "@bixu/github-security",
-  version: "2026.03.09.1",
+  version: "2026.03.09.2",
   globalArguments: GlobalArgsSchema,
   resources: {
     summary: {
