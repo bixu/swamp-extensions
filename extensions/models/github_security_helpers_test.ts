@@ -1,5 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
+  buildSecurityMarkdown,
   buildSecuritySummary,
   buildSecurityTable,
   isSecurityApp,
@@ -476,4 +477,87 @@ Deno.test("buildSecurityTable sorts app coverage by count descending", () => {
   assertEquals(appNames[0], "snyk");
   assertEquals(appNames[1], "semgrep");
   assertEquals(appNames[2], "codeql");
+});
+
+// --- buildSecurityMarkdown ---
+
+Deno.test("buildSecurityMarkdown includes markdown headers", () => {
+  const summary = makeSummary({
+    totalRepos: 10,
+    activeRepos: 8,
+    ownedRepos: 6,
+  });
+
+  const lines = buildSecurityMarkdown(summary);
+
+  assertEquals(lines[0], "## Security Summary");
+  assertEquals(lines.some((l) => l.includes("| Metric | Value |")), true);
+  assertEquals(lines.some((l) => l.includes("| Total repos | 10 |")), true);
+});
+
+Deno.test("buildSecurityMarkdown includes features table", () => {
+  const summary = makeSummary({
+    ownedRepos: 10,
+    secretScanningEnabled: 4,
+    codeScanningEnabled: 2,
+    totalCodeScanningAlerts: 7,
+  });
+
+  const lines = buildSecurityMarkdown(summary);
+
+  assertEquals(
+    lines.some((l) => l.includes("| Secret scanning | 4 / 10 |")),
+    true,
+  );
+  assertEquals(
+    lines.some((l) => l.includes("| Total open code scanning alerts | 7 |")),
+    true,
+  );
+});
+
+Deno.test("buildSecurityMarkdown includes app coverage table", () => {
+  const summary = makeSummary({
+    securityAppCoverage: { snyk: 5, codeql: 3 },
+  });
+
+  const lines = buildSecurityMarkdown(summary);
+
+  assertEquals(lines.some((l) => l === "| snyk | 5 |"), true);
+  assertEquals(lines.some((l) => l === "| codeql | 3 |"), true);
+});
+
+Deno.test("buildSecurityMarkdown bolds NO in missing repos table", () => {
+  const summary = makeSummary({
+    totalRepos: 1,
+    activeRepos: 1,
+    ownedRepos: 1,
+    reposMissingFeatures: [
+      makeStatus({
+        name: "insecure",
+        secretScanningEnabled: true,
+        secretScanningPushProtection: false,
+      }),
+    ],
+  });
+
+  const lines = buildSecurityMarkdown(summary);
+  const repoLine = lines.find((l) => l.includes("| insecure |"));
+
+  assertEquals(repoLine !== undefined, true);
+  assertEquals(repoLine!.includes("| yes |"), true);
+  assertEquals(repoLine!.includes("| **NO** |"), true);
+});
+
+Deno.test("buildSecurityMarkdown omits missing section when all secure", () => {
+  const summary = makeSummary({
+    totalRepos: 1,
+    ownedRepos: 1,
+  });
+
+  const lines = buildSecurityMarkdown(summary);
+
+  assertEquals(
+    lines.some((l) => l.includes("## Repos Missing")),
+    false,
+  );
 });

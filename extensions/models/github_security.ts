@@ -1,6 +1,7 @@
 import { z } from "npm:zod@4";
 import { Octokit } from "npm:@octokit/rest@22.0.1";
 import {
+  buildSecurityMarkdown,
   buildSecuritySummary,
   buildSecurityTable,
   fetchOrgRepoSecurity,
@@ -54,7 +55,7 @@ const RepoStatusSchema = z.object({
 
 export const model = {
   type: "@bixu/github-security",
-  version: "2026.03.09.2",
+  version: "2026.03.09.3",
   globalArguments: GlobalArgsSchema,
   resources: {
     summary: {
@@ -78,7 +79,9 @@ export const model = {
         username: z.string().optional().describe(
           "GitHub username (omit for authenticated user)",
         ),
-        json: z.boolean().default(false).describe("Output raw JSON"),
+        format: z.enum(["text", "markdown", "json"]).default("text").describe(
+          "Output format: text (default), markdown, or json",
+        ),
       }),
       execute: async (args, context) => {
         const client = new Octokit({ auth: context.globalArgs.token });
@@ -124,8 +127,10 @@ export const model = {
           handles.push(handle);
         }
 
-        const output = args.json
+        const output = args.format === "json"
           ? JSON.stringify(summary, null, 2) + "\n"
+          : args.format === "markdown"
+          ? buildSecurityMarkdown(summary).join("\n") + "\n"
           : buildSecurityTable(summary).join("\n") + "\n";
         await Deno.stdout.write(new TextEncoder().encode(output));
 
@@ -138,7 +143,9 @@ export const model = {
         "Scan all repos in a GitHub organization and report security status",
       arguments: z.object({
         org: z.string().describe("GitHub organization name"),
-        json: z.boolean().default(false).describe("Output raw JSON"),
+        format: z.enum(["text", "markdown", "json"]).default("text").describe(
+          "Output format: text (default), markdown, or json",
+        ),
       }),
       execute: async (args, context) => {
         const client = new Octokit({ auth: context.globalArgs.token });
@@ -173,8 +180,10 @@ export const model = {
           handles.push(handle);
         }
 
-        const output = args.json
+        const output = args.format === "json"
           ? JSON.stringify(summary, null, 2) + "\n"
+          : args.format === "markdown"
+          ? buildSecurityMarkdown(summary).join("\n") + "\n"
           : buildSecurityTable(summary).join("\n") + "\n";
         await Deno.stdout.write(new TextEncoder().encode(output));
 

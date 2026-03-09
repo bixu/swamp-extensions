@@ -344,6 +344,89 @@ export function buildSecuritySummary(
   };
 }
 
+export function buildSecurityMarkdown(summary: SecuritySummary): string[] {
+  const lines: string[] = [];
+  const o = summary.ownedRepos;
+
+  lines.push("## Security Summary");
+  lines.push("");
+  lines.push("| Metric | Value |");
+  lines.push("| --- | --- |");
+  lines.push(`| Total repos | ${summary.totalRepos} |`);
+  lines.push(
+    `| Active | ${summary.activeRepos} (${o} owned, ${summary.forkedRepos} forks) |`,
+  );
+  lines.push(`| Archived | ${summary.archivedRepos} |`);
+  lines.push(`| Public | ${summary.publicRepos} |`);
+  lines.push(`| Private | ${summary.privateRepos} |`);
+  lines.push("");
+
+  lines.push("## GitHub Security Features (active owned repos)");
+  lines.push("");
+  lines.push("| Feature | Coverage |");
+  lines.push("| --- | --- |");
+  lines.push(`| Secret scanning | ${summary.secretScanningEnabled} / ${o} |`);
+  lines.push(
+    `| Secret scanning push protection | ${summary.secretScanningPushProtection} / ${o} |`,
+  );
+  lines.push(
+    `| Dependabot security updates | ${summary.dependabotSecurityUpdates} / ${o} |`,
+  );
+  lines.push(
+    `| Code scanning (alerts present) | ${summary.codeScanningEnabled} / ${o} |`,
+  );
+  lines.push(
+    `| Total open code scanning alerts | ${summary.totalCodeScanningAlerts} |`,
+  );
+  lines.push("");
+
+  lines.push("## Third-Party Security Tools");
+  lines.push("");
+  lines.push("| Metric | Coverage |");
+  lines.push("| --- | --- |");
+  lines.push(
+    `| Repos with security apps | ${summary.reposWithSecurityApps} / ${o} |`,
+  );
+  lines.push(
+    `| Repos with security CI checks | ${summary.reposWithSecurityChecks} / ${o} |`,
+  );
+
+  const appEntries = Object.entries(summary.securityAppCoverage).sort(
+    (a, b) => b[1] - a[1],
+  );
+  if (appEntries.length > 0) {
+    lines.push("");
+    lines.push("| App | Repos |");
+    lines.push("| --- | --- |");
+    for (const [app, count] of appEntries) {
+      lines.push(`| ${app} | ${count} |`);
+    }
+  }
+
+  const missing = summary.reposMissingFeatures;
+  if (missing.length > 0) {
+    lines.push("");
+    lines.push("## Repos Missing GitHub Security Features");
+    lines.push("");
+    lines.push(
+      "| Repository | Visibility | Secret Scanning | Push Protection | Dependabot | Apps |",
+    );
+    lines.push("| --- | --- | --- | --- | --- | --- |");
+    const sorted = [...missing].sort((a, b) => a.name.localeCompare(b.name));
+    for (const r of sorted) {
+      const ss = r.secretScanningEnabled ? "yes" : "**NO**";
+      const pp = r.secretScanningPushProtection ? "yes" : "**NO**";
+      const db = r.dependabotSecurityUpdates ? "yes" : "**NO**";
+      const apps = r.securityApps.length > 0 ? r.securityApps.join(", ") : "-";
+      lines.push(
+        `| ${r.name} | ${r.visibility} | ${ss} | ${pp} | ${db} | ${apps} |`,
+      );
+    }
+  }
+
+  return lines;
+}
+
 export function buildSecurityTable(summary: SecuritySummary): string[] {
   const lines: string[] = [];
 
