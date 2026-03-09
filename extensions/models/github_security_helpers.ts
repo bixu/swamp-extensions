@@ -55,6 +55,28 @@ export function isSecurityApp(name: string): boolean {
   return SECURITY_APP_PATTERNS.some((p) => lower.includes(p));
 }
 
+async function parallelMap<T, R>(
+  items: T[],
+  fn: (item: T, index: number) => Promise<R>,
+  concurrency = 10,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(
+    Array.from(
+      { length: Math.min(concurrency, items.length) },
+      () => worker(),
+    ),
+  );
+  return results;
+}
+
 // deno-lint-ignore no-explicit-any
 function normalizeSecurityFields(r: any): RepoSecurityStatus {
   const sa = r.security_and_analysis ?? {};
@@ -201,25 +223,17 @@ export async function fetchUserRepoSecurity(
   // Enrich with check suites per repo (no org-level code scanning for users)
   const owner = username ??
     (await client.rest.users.getAuthenticated()).data.login;
-  for (let i = 0; i < active.length; i++) {
-    const r = active[i];
-    const alertCount = await fetchCodeScanningAlertsForRepo(
-      client,
-      owner,
-      r.name,
-    );
+
+  await parallelMap(active, async (r, i) => {
+    const [alertCount, checks] = await Promise.all([
+      fetchCodeScanningAlertsForRepo(client, owner, r.name),
+      fetchCheckSuitesForRepo(client, owner, r.name, r.default_branch),
+    ]);
     statuses[i].codeScanningAlertCount = alertCount;
     statuses[i].codeScanningEnabled = alertCount > 0;
-
-    const checks = await fetchCheckSuitesForRepo(
-      client,
-      owner,
-      r.name,
-      r.default_branch,
-    );
     statuses[i].securityChecks = checks;
     statuses[i].securityApps = checks;
-  }
+  });
 
   return statuses;
 }
@@ -237,26 +251,24 @@ export async function fetchOrgRepoSecurity(
   const active = filterActiveRepos(repos);
   const statuses = active.map(normalizeSecurityFields);
 
-  // Code scanning alerts (org-level, single paginated call)
-  const alertsByRepo = await fetchCodeScanningAlerts(client, org);
+  // Org-level calls in parallel: code scanning alerts + app installations
+  const [alertsByRepo, appsByRepo] = await Promise.all([
+    fetchCodeScanningAlerts(client, org),
+    fetchOrgInstallations(client, org),
+  ]);
+
   for (const status of statuses) {
     const count = alertsByRepo.get(status.name) ?? 0;
     status.codeScanningAlertCount = count;
     status.codeScanningEnabled = alertsByRepo.has(status.name) || count > 0;
-  }
-
-  // App installations (org-level)
-  const appsByRepo = await fetchOrgInstallations(client, org);
-  for (const status of statuses) {
     const apps = appsByRepo.get(status.name);
     if (apps) {
       status.securityApps = [...apps];
     }
   }
 
-  // Check suites per repo for security CI checks
-  for (let i = 0; i < active.length; i++) {
-    const r = active[i];
+  // Check suites per repo — parallelized with concurrency limit
+  await parallelMap(active, async (r, i) => {
     const checks = await fetchCheckSuitesForRepo(
       client,
       org,
@@ -267,7 +279,7 @@ export async function fetchOrgRepoSecurity(
     const allApps = new Set([...statuses[i].securityApps, ...checks]);
     statuses[i].securityApps = [...allApps];
     statuses[i].securityChecks = checks;
-  }
+  });
 
   return statuses;
 }
