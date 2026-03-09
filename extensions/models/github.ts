@@ -100,7 +100,7 @@ function resolveOwner(
 
 export const model = {
   type: "@bixu/github",
-  version: "2026.03.09.1",
+  version: "2026.03.09.2",
   globalArguments: GlobalArgsSchema,
   resources: {
     repo: {
@@ -153,6 +153,68 @@ export const model = {
           type: args.type,
           sort: args.sort,
         });
+
+        const handles = [];
+        const normalized = [];
+        for (const r of repos) {
+          const data = normalizeRepo(r);
+          normalized.push(data);
+          const handle = await context.writeResource(
+            "repo",
+            String(data.name),
+            data,
+          );
+          handles.push(handle);
+        }
+
+        const output = args.json
+          ? JSON.stringify(normalized, null, 2) + "\n"
+          : buildRepoTable(normalized).join("\n") + "\n";
+        await Deno.stdout.write(new TextEncoder().encode(output));
+
+        return { dataHandles: handles };
+      },
+    },
+
+    listUserRepos: {
+      description:
+        "List repositories for the authenticated user or a specified user",
+      arguments: z.object({
+        username: z.string().optional().describe(
+          "GitHub username (omit to list repos for the authenticated user)",
+        ),
+        type: z.enum(["all", "owner", "member"]).default("owner").describe(
+          "Filter by repo relationship to user",
+        ),
+        sort: z.enum(["created", "updated", "pushed", "full_name"])
+          .default("full_name")
+          .describe("Sort field"),
+        json: z.boolean().default(false).describe(
+          "Output raw JSON instead of a table",
+        ),
+      }),
+      execute: async (args, context) => {
+        const client = createClient(context.globalArgs.token);
+
+        // deno-lint-ignore no-explicit-any
+        let repos: any[];
+        if (args.username) {
+          repos = await client.paginate(client.rest.repos.listForUser, {
+            username: args.username,
+            per_page: 100,
+            type: args.type,
+            sort: args.sort,
+          });
+        } else {
+          repos = await client.paginate(
+            client.rest.repos.listForAuthenticatedUser,
+            {
+              per_page: 100,
+              type: args.type,
+              sort: args.sort,
+            },
+          );
+        }
 
         const handles = [];
         const normalized = [];
