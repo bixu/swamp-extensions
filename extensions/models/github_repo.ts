@@ -1,7 +1,9 @@
 import { z } from "npm:zod@4";
 import {
+  buildCodeSearchTable,
   buildRepoTable,
   createClient,
+  normalizeCodeResult,
   normalizeRepo,
 } from "./github_helpers.ts";
 
@@ -41,6 +43,15 @@ const RepoSchema = z.object({
   dependabotSecurityUpdates: z.boolean(),
 }).passthrough();
 
+const CodeResultSchema = z.object({
+  name: z.string(),
+  path: z.string(),
+  repository: z.string().nullable(),
+  htmlUrl: z.string(),
+  sha: z.string(),
+  score: z.number().nullable(),
+}).passthrough();
+
 function resolveOrg(
   methodOrg: string | undefined,
   globalOrg: string | undefined,
@@ -64,7 +75,7 @@ function resolveOwner(
 
 export const model = {
   type: "@bixu/github/repo",
-  version: "2026.03.09.1",
+  version: "2026.03.10.1",
   globalArguments: GlobalArgsSchema,
   resources: {
     repo: {
@@ -72,6 +83,12 @@ export const model = {
       schema: RepoSchema,
       lifetime: "infinite" as const,
       garbageCollection: 10,
+    },
+    codeResult: {
+      description: "GitHub code search result",
+      schema: CodeResultSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 50,
     },
   },
   methods: {
@@ -212,6 +229,78 @@ export const model = {
           normalized,
         );
         return { dataHandles: [handle] };
+      },
+    },
+
+    searchCode: {
+      description:
+        "Search code across repositories using GitHub code search syntax",
+      arguments: z.object({
+        query: z.string().describe(
+          "Search query (GitHub code search syntax, e.g. 'ipv6 language:groovy')",
+        ),
+        org: z.string().optional().describe(
+          "Organization to scope search to",
+        ),
+        repo: z.string().optional().describe(
+          "Repository name to scope search to (requires org/owner)",
+        ),
+        owner: z.string().optional().describe(
+          "Repository owner to scope search to (used with repo)",
+        ),
+        language: z.string().optional().describe(
+          "Filter by programming language",
+        ),
+        path: z.string().optional().describe(
+          "Filter by file path (e.g. 'Jenkinsfile' or '*.gradle')",
+        ),
+        limit: z.number().default(30).describe(
+          "Maximum number of results to return",
+        ),
+        json: z.boolean().default(false).describe("Output raw JSON"),
+      }),
+      execute: async (args, context) => {
+        const client = createClient(context.globalArgs.token);
+
+        let q = args.query;
+        const org = args.org ?? context.globalArgs.org;
+        const owner = args.owner ?? context.globalArgs.owner ?? org;
+        if (owner && args.repo) {
+          q += ` repo:${owner}/${args.repo}`;
+        } else if (org) {
+          q += ` org:${org}`;
+        }
+        if (args.language) q += ` language:${args.language}`;
+        if (args.path) q += ` path:${args.path}`;
+
+        const resp = await client.rest.search.code({
+          q,
+          per_page: Math.min(args.limit, 100),
+        });
+
+        const handles = [];
+        const normalized = [];
+        for (const item of resp.data.items) {
+          const data = normalizeCodeResult(item);
+          normalized.push(data);
+          const instanceName = `${data.repository}-${data.path}`.replaceAll(
+            "/",
+            "-",
+          );
+          const handle = await context.writeResource(
+            "codeResult",
+            instanceName,
+            data,
+          );
+          handles.push(handle);
+        }
+
+        const output = args.json
+          ? JSON.stringify(normalized, null, 2) + "\n"
+          : buildCodeSearchTable(normalized).join("\n") + "\n";
+        await Deno.stdout.write(new TextEncoder().encode(output));
+
+        return { dataHandles: handles };
       },
     },
   },
