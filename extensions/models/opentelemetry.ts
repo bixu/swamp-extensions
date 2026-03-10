@@ -1,9 +1,10 @@
 import { z } from "npm:zod@4";
 import {
-  context,
-  flushTracer,
-  getTracer,
-  initTracer,
+  buildSpan,
+  buildTracePayload,
+  exportTrace,
+  generateSpanId,
+  generateTraceId,
   SpanKind,
   SpanStatusCode,
 } from "./opentelemetry_helpers.ts";
@@ -15,8 +16,11 @@ const GlobalArgsSchema = z.object({
   serviceName: z.string().default("swamp").describe(
     "OpenTelemetry service.name resource attribute",
   ),
-  headers: z.string().optional().describe(
-    'JSON object of extra headers (e.g. for auth: {"x-honeycomb-team": "..."})',
+  apiKey: z.string().optional().describe(
+    "API key / token for the OTLP endpoint (sent as a header value)",
+  ),
+  apiKeyHeader: z.string().default("x-honeycomb-team").describe(
+    "Header name for the API key (e.g. x-honeycomb-team, Authorization)",
   ),
 });
 
@@ -26,12 +30,12 @@ const SpanSchema = z.object({
   name: z.string(),
   status: z.string(),
   durationMs: z.number(),
-  attributes: z.record(z.unknown()),
+  attributes: z.record(z.string(), z.any()),
 });
 
 export const model = {
   type: "@bixu/opentelemetry",
-  version: "2026.03.10.1",
+  version: "2026.03.10.3",
   globalArguments: GlobalArgsSchema,
   resources: {
     span: {
@@ -71,18 +75,13 @@ export const model = {
           "Span duration in ms. 0 records an instant event.",
         ),
       }),
-      execute: async (args, context_) => {
-        const parsedHeaders = context_.globalArgs.headers
-          ? JSON.parse(context_.globalArgs.headers)
-          : undefined;
+      execute: async (args, context) => {
+        const extraHeaders: Record<string, string> = {};
+        if (context.globalArgs.apiKey) {
+          extraHeaders[context.globalArgs.apiKeyHeader] =
+            context.globalArgs.apiKey;
+        }
 
-        initTracer({
-          endpoint: context_.globalArgs.endpoint,
-          serviceName: context_.globalArgs.serviceName,
-          headers: parsedHeaders,
-        });
-
-        const tracer = getTracer(context_.globalArgs.serviceName);
         const spanKindMap = {
           internal: SpanKind.INTERNAL,
           server: SpanKind.SERVER,
@@ -98,36 +97,49 @@ export const model = {
 
         const parsedAttrs = JSON.parse(args.attributes);
         const now = Date.now();
-        const startTime = new Date(now - args.durationMs);
+        const traceId = args.traceId ?? generateTraceId();
+        const spanId = generateSpanId();
 
-        const span = tracer.startSpan(
-          args.name,
-          {
-            kind: spanKindMap[args.kind],
-            startTime,
-            attributes: parsedAttrs,
+        const span = buildSpan({
+          name: args.name,
+          traceId,
+          spanId,
+          parentSpanId: args.parentSpanId,
+          kind: spanKindMap[args.kind],
+          startTimeMs: now - args.durationMs,
+          endTimeMs: now,
+          status: {
+            code: statusMap[args.status],
+            message: args.statusMessage,
           },
-          context.active(),
+          attributes: parsedAttrs,
+        });
+
+        const payload = buildTracePayload(
+          [span],
+          context.globalArgs.serviceName,
         );
 
-        span.setStatus({
-          code: statusMap[args.status],
-          message: args.statusMessage,
-        });
-        span.end(new Date(now));
+        const result = await exportTrace(
+          context.globalArgs.endpoint,
+          payload,
+          Object.keys(extraHeaders).length > 0 ? extraHeaders : undefined,
+        );
 
-        await flushTracer();
+        if (!result.ok) {
+          throw new Error(
+            `OTLP export failed (${result.status}): ${result.body}`,
+          );
+        }
 
-        const spanContext = span.spanContext();
-
-        context_.logger.info("Exported span {name} ({traceId})", {
+        context.logger.info("Exported span {name} ({traceId})", {
           name: args.name,
-          traceId: spanContext.traceId,
+          traceId,
         });
 
-        const handle = await context_.writeResource("span", args.name, {
-          traceId: spanContext.traceId,
-          spanId: spanContext.spanId,
+        const handle = await context.writeResource("span", args.name, {
+          traceId,
+          spanId,
           name: args.name,
           status: args.status,
           durationMs: args.durationMs,
