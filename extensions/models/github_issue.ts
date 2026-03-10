@@ -1,5 +1,9 @@
 import { z } from "npm:zod@4";
-import { createClient, normalizeIssue } from "./github_helpers.ts";
+import {
+  buildIssueSearchQuery,
+  createClient,
+  normalizeIssue,
+} from "./github_helpers.ts";
 
 const GlobalArgsSchema = z.object({
   token: z.string().describe("GitHub personal access token"),
@@ -71,18 +75,13 @@ export const model = {
       execute: async (args, context) => {
         const client = createClient(context.globalArgs.token);
 
-        let q = args.query;
-        const owner = args.owner ?? context.globalArgs.owner ??
-          context.globalArgs.org;
-        if (owner && args.repo) {
-          q += ` repo:${owner}/${args.repo}`;
-        } else if (owner) {
-          q += ` org:${owner}`;
-        }
-        if (args.state !== "all") {
-          q += ` state:${args.state}`;
-        }
-        q += " is:issue";
+        const q = buildIssueSearchQuery(args.query, {
+          owner: args.owner,
+          repo: args.repo,
+          globalOwner: context.globalArgs.owner,
+          globalOrg: context.globalArgs.org,
+          state: args.state,
+        });
 
         const resp = await client.rest.search.issuesAndPullRequests({
           q,
