@@ -1,8 +1,10 @@
 import { assertEquals, assertExists, assertThrows } from "jsr:@std/assert@1";
 import {
+  buildCodeSearchTable,
   buildIssueSearchQuery,
   buildRepoTable,
   createClient,
+  normalizeCodeResult,
   normalizeIssue,
   normalizeMember,
   normalizePull,
@@ -640,4 +642,62 @@ Deno.test("buildIssueSearchQuery with globalOrg but no repo scopes to org", () =
     state: "closed",
   });
   assertEquals(q, "search term org:myorg state:closed is:issue");
+});
+
+// --- normalizeCodeResult ---
+
+Deno.test("normalizeCodeResult extracts key fields", () => {
+  const raw = {
+    name: "Jenkinsfile",
+    path: "Jenkinsfile",
+    sha: "abc123",
+    html_url: "https://github.com/org/repo/blob/main/Jenkinsfile",
+    repository: { full_name: "org/repo" },
+    score: 1.5,
+  };
+
+  const result = normalizeCodeResult(raw);
+  assertEquals(result.name, "Jenkinsfile");
+  assertEquals(result.path, "Jenkinsfile");
+  assertEquals(result.repository, "org/repo");
+  assertEquals(result.sha, "abc123");
+  assertEquals(result.score, 1.5);
+  assertEquals(
+    result.htmlUrl,
+    "https://github.com/org/repo/blob/main/Jenkinsfile",
+  );
+});
+
+Deno.test("normalizeCodeResult handles missing repository", () => {
+  const raw = {
+    name: "build.gradle",
+    path: "build.gradle",
+    sha: "def456",
+    html_url: "https://github.com/org/repo/blob/main/build.gradle",
+  };
+
+  const result = normalizeCodeResult(raw);
+  assertEquals(result.repository, null);
+  assertEquals(result.score, null);
+});
+
+// --- buildCodeSearchTable ---
+
+Deno.test("buildCodeSearchTable produces header and rows", () => {
+  const results = [
+    { repository: "org/repo-a", path: "Jenkinsfile" },
+    { repository: "org/repo-b", path: "build.gradle.kts" },
+  ];
+
+  const lines = buildCodeSearchTable(results);
+  assertEquals(lines.length, 4);
+  assertEquals(lines[0].includes("Repository"), true);
+  assertEquals(lines[2].includes("org/repo-a"), true);
+  assertEquals(lines[2].includes("Jenkinsfile"), true);
+  assertEquals(lines[3].includes("build.gradle.kts"), true);
+});
+
+Deno.test("buildCodeSearchTable handles empty results", () => {
+  const lines = buildCodeSearchTable([]);
+  assertEquals(lines.length, 2); // header + separator only
 });
