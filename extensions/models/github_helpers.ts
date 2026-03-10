@@ -114,6 +114,30 @@ export function normalizeMember(m: any): Record<string, unknown> {
   };
 }
 
+export function buildIssueSearchQuery(
+  query: string,
+  opts: {
+    owner?: string;
+    repo?: string;
+    globalOwner?: string;
+    globalOrg?: string;
+    state?: string;
+  },
+): string {
+  let q = query;
+  const owner = opts.owner ?? opts.globalOwner ?? opts.globalOrg;
+  if (owner && opts.repo) {
+    q += ` repo:${owner}/${opts.repo}`;
+  } else if (owner) {
+    q += ` org:${owner}`;
+  }
+  if (opts.state && opts.state !== "all") {
+    q += ` state:${opts.state}`;
+  }
+  q += " is:issue";
+  return q;
+}
+
 export function requireForce(action: string, target: string, force: boolean) {
   if (!force) {
     throw new Error(

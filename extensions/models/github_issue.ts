@@ -1,5 +1,9 @@
 import { z } from "npm:zod@4";
-import { createClient, normalizeIssue } from "./github_helpers.ts";
+import {
+  buildIssueSearchQuery,
+  createClient,
+  normalizeIssue,
+} from "./github_helpers.ts";
 
 const GlobalArgsSchema = z.object({
   token: z.string().describe("GitHub personal access token"),
@@ -36,7 +40,7 @@ function resolveOwner(
 
 export const model = {
   type: "@bixu/github/issue",
-  version: "2026.03.09.1",
+  version: "2026.03.10.1",
   globalArguments: GlobalArgsSchema,
   resources: {
     issue: {
@@ -47,6 +51,67 @@ export const model = {
     },
   },
   methods: {
+    search: {
+      description:
+        "Search issues across repositories using GitHub search syntax",
+      arguments: z.object({
+        query: z.string().describe(
+          "Search query (GitHub issues search syntax, e.g. 'network-helper immutable')",
+        ),
+        owner: z.string().optional().describe(
+          "Repository owner to scope search to (used with repo)",
+        ),
+        repo: z.string().optional().describe(
+          "Repository name to scope search to (requires owner)",
+        ),
+        state: z.enum(["open", "closed", "all"]).default("all").describe(
+          "Filter by state",
+        ),
+        limit: z.number().default(30).describe(
+          "Maximum number of results to return",
+        ),
+        json: z.boolean().default(false).describe("Output raw JSON"),
+      }),
+      execute: async (args, context) => {
+        const client = createClient(context.globalArgs.token);
+
+        const q = buildIssueSearchQuery(args.query, {
+          owner: args.owner,
+          repo: args.repo,
+          globalOwner: context.globalArgs.owner,
+          globalOrg: context.globalArgs.org,
+          state: args.state,
+        });
+
+        const resp = await client.rest.search.issuesAndPullRequests({
+          q,
+          per_page: Math.min(args.limit, 100),
+          sort: "updated",
+          order: "desc",
+        });
+
+        const handles = [];
+        const normalized = [];
+        for (const i of resp.data.items) {
+          const data = normalizeIssue(i);
+          normalized.push(data);
+          const repoName = i.repository_url?.split("/").pop() ?? "unknown";
+          const handle = await context.writeResource(
+            "issue",
+            `${repoName}-${data.number}`,
+            data,
+          );
+          handles.push(handle);
+        }
+
+        if (args.json) {
+          const output = JSON.stringify(normalized, null, 2) + "\n";
+          await Deno.stdout.write(new TextEncoder().encode(output));
+        }
+
+        return { dataHandles: handles };
+      },
+    },
     list: {
       description: "List issues for a repository",
       arguments: z.object({
