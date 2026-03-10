@@ -1,5 +1,6 @@
 import { assertEquals, assertExists, assertThrows } from "jsr:@std/assert@1";
 import {
+  buildIssueSearchQuery,
   buildRepoTable,
   createClient,
   normalizeIssue,
@@ -570,4 +571,73 @@ Deno.test("requireForce includes action and target in error message", () => {
     assertEquals(msg.includes("deleteRepo"), true);
     assertEquals(msg.includes("org/critical-repo"), true);
   }
+});
+
+// --- buildIssueSearchQuery ---
+
+Deno.test("buildIssueSearchQuery with owner and repo scopes to repo", () => {
+  const q = buildIssueSearchQuery("network-helper immutable", {
+    owner: "harvester",
+    repo: "harvester",
+  });
+  assertEquals(q, "network-helper immutable repo:harvester/harvester is:issue");
+});
+
+Deno.test("buildIssueSearchQuery with owner only scopes to org", () => {
+  const q = buildIssueSearchQuery("bug", { owner: "harvester" });
+  assertEquals(q, "bug org:harvester is:issue");
+});
+
+Deno.test("buildIssueSearchQuery with no owner or repo adds only is:issue", () => {
+  const q = buildIssueSearchQuery("global search", {});
+  assertEquals(q, "global search is:issue");
+});
+
+Deno.test("buildIssueSearchQuery falls back to globalOwner", () => {
+  const q = buildIssueSearchQuery("test", {
+    globalOwner: "bixu",
+    repo: "swamp",
+  });
+  assertEquals(q, "test repo:bixu/swamp is:issue");
+});
+
+Deno.test("buildIssueSearchQuery falls back to globalOrg", () => {
+  const q = buildIssueSearchQuery("test", { globalOrg: "myorg" });
+  assertEquals(q, "test org:myorg is:issue");
+});
+
+Deno.test("buildIssueSearchQuery owner precedence: method > globalOwner > globalOrg", () => {
+  const q = buildIssueSearchQuery("test", {
+    owner: "explicit",
+    globalOwner: "fallback",
+    globalOrg: "last-resort",
+    repo: "repo",
+  });
+  assertEquals(q, "test repo:explicit/repo is:issue");
+});
+
+Deno.test("buildIssueSearchQuery adds state filter for non-all states", () => {
+  const q = buildIssueSearchQuery("bug", {
+    owner: "org",
+    repo: "repo",
+    state: "open",
+  });
+  assertEquals(q, "bug repo:org/repo state:open is:issue");
+});
+
+Deno.test("buildIssueSearchQuery omits state filter for 'all'", () => {
+  const q = buildIssueSearchQuery("bug", {
+    owner: "org",
+    repo: "repo",
+    state: "all",
+  });
+  assertEquals(q, "bug repo:org/repo is:issue");
+});
+
+Deno.test("buildIssueSearchQuery with globalOrg but no repo scopes to org", () => {
+  const q = buildIssueSearchQuery("search term", {
+    globalOrg: "myorg",
+    state: "closed",
+  });
+  assertEquals(q, "search term org:myorg state:closed is:issue");
 });
