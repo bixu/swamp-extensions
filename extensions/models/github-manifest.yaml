@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@bixu/github"
-version: "2026.03.09.1"
+version: "2026.03.10.1"
 description: "GitHub resource models (repos, issues, PRs, members) using Octokit REST SDK"
 models:
   - github_repo.ts
