@@ -138,6 +138,40 @@ export function buildIssueSearchQuery(
   return q;
 }
 
+// deno-lint-ignore no-explicit-any
+export function normalizeCodeResult(c: any): Record<string, unknown> {
+  return {
+    name: c.name,
+    path: c.path,
+    repository: c.repository?.full_name ?? null,
+    htmlUrl: c.html_url,
+    sha: c.sha,
+    score: c.score ?? null,
+  };
+}
+
+export function buildCodeSearchTable(
+  // deno-lint-ignore no-explicit-any
+  results: any[],
+): string[] {
+  const lines: string[] = [];
+  const hdr = [
+    "Repository".padEnd(40),
+    "Path".padEnd(60),
+  ].join(" ");
+  lines.push(hdr);
+  lines.push("-".repeat(hdr.length));
+
+  for (const r of results) {
+    lines.push([
+      String(r.repository ?? "").padEnd(40).slice(0, 40),
+      String(r.path ?? "").padEnd(60).slice(0, 60),
+    ].join(" "));
+  }
+
+  return lines;
+}
+
 export function requireForce(action: string, target: string, force: boolean) {
   if (!force) {
     throw new Error(
