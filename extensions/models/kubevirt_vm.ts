@@ -33,6 +33,15 @@ const ExecResultSchema = z.object({
   executedAt: z.string(),
 });
 
+const SystemdShowSchema = z.object({
+  vmName: z.string(),
+  podName: z.string(),
+  domain: z.string(),
+  unit: z.string(),
+  properties: z.record(z.string(), z.string()),
+  checkedAt: z.string(),
+});
+
 const VmListSchema = z.object({
   context: z.string(),
   namespace: z.string(),
@@ -185,7 +194,7 @@ async function guestExec(
 
 export const model = {
   type: "@bixu/kubevirt-vm",
-  version: "2026.03.13.2",
+  version: "2026.03.13.3",
   globalArguments: GlobalArgsSchema,
   resources: {
     vms: {
@@ -203,6 +212,12 @@ export const model = {
     exec: {
       description: "Command execution result from a VM",
       schema: ExecResultSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 50,
+    },
+    systemdUnit: {
+      description: "Systemd unit properties from a VM",
+      schema: SystemdShowSchema,
       lifetime: "infinite" as const,
       garbageCollection: 50,
     },
@@ -427,6 +442,97 @@ export const model = {
               domain: vm.domain,
               code: result.exitCode,
             });
+          } catch (err) {
+            context.logger.info("Failed on {domain}: {error}", {
+              domain: vm.domain,
+              error: String(err),
+            });
+          }
+        }
+        return { dataHandles: handles };
+      },
+    },
+
+    systemdShow: {
+      description:
+        "Show systemd unit properties across all VMs (or a filtered subset)",
+      arguments: z.object({
+        unit: z.string().describe(
+          "Systemd unit name (e.g. otelcol-contrib, docker, sshd)",
+        ),
+        properties: z.string().optional().describe(
+          "Comma-separated list of properties to show (default: all). e.g. LimitNOFILE,MemoryMax,User,Restart",
+        ),
+        filter: z.string().optional().describe(
+          "Only check VMs matching this string",
+        ),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        let vms = await discoverVms(g.kubeContext, g.namespace);
+        if (args.filter) {
+          vms = vms.filter((v) =>
+            v.podName.includes(args.filter) || v.domain.includes(args.filter)
+          );
+        }
+
+        const propFlag = args.properties
+          ? `--property=${args.properties}`
+          : "--all";
+
+        context.logger.info("Showing {unit} properties on {count} VMs", {
+          unit: args.unit,
+          count: vms.length,
+        });
+
+        const handles = [];
+        for (const vm of vms) {
+          try {
+            const result = await guestExec(
+              g.kubeContext,
+              g.namespace,
+              vm.podName,
+              vm.domain,
+              `systemctl show ${args.unit} ${propFlag} 2>&1`,
+              15,
+              "root",
+            );
+
+            const properties = {};
+            for (const line of result.stdout.split("\n")) {
+              const eq = line.indexOf("=");
+              if (eq > 0) {
+                properties[line.slice(0, eq)] = line.slice(eq + 1);
+              }
+            }
+
+            const handle = await context.writeResource(
+              "systemdUnit",
+              `${vm.domain}--${args.unit}`,
+              {
+                vmName: vm.domain.replace(/^cicd_/, ""),
+                podName: vm.podName,
+                domain: vm.domain,
+                unit: args.unit,
+                properties,
+                checkedAt: new Date().toISOString(),
+              },
+            );
+            handles.push(handle);
+
+            const user = properties["User"] || "(not set)";
+            const restart = properties["Restart"] || "(not set)";
+            const active = properties["ActiveState"] || "(unknown)";
+            context.logger.info(
+              "{domain}: {unit} state={active} user={user} restart={restart}",
+              {
+                domain: vm.domain,
+                unit: args.unit,
+                active,
+                user,
+                restart,
+              },
+            );
           } catch (err) {
             context.logger.info("Failed on {domain}: {error}", {
               domain: vm.domain,
