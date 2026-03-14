@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@bixu/kubevirt-vm"
-version: "2026.03.14.5"
+version: "2026.03.14.6"
 description: "Manage KubeVirt VMs via the QEMU guest agent — discover VMs, execute commands, check services across fleets"
 models:
   - kubevirt_vm.ts
