@@ -10,6 +10,9 @@ const GlobalArgsSchema = z.object({
   user: z.string().default("nobody").describe(
     "Default user to run commands as inside VMs (set to 'root' to disable)",
   ),
+  concurrency: z.number().default(10).describe(
+    "Max VMs to process in parallel (default: 10)",
+  ),
 });
 
 const ServiceStatusSchema = z.object({
@@ -60,6 +63,14 @@ const HealthCheckSchema = z.object({
   checkedAt: z.string(),
 });
 
+const SummarySchema = z.object({
+  method: z.string(),
+  totalVMs: z.number(),
+  summary: z.string(),
+  details: z.record(z.string(), z.union([z.string(), z.number()])),
+  generatedAt: z.string(),
+});
+
 const VmListSchema = z.object({
   context: z.string(),
   namespace: z.string(),
@@ -85,7 +96,17 @@ async function kubectl(context, namespace, args) {
   return stdout.trim();
 }
 
-async function discoverVms(context, namespace) {
+async function runBatched(items, concurrency, fn) {
+  const results = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const batchResults = await Promise.allSettled(batch.map(fn));
+    results.push(...batchResults);
+  }
+  return results;
+}
+
+async function discoverVms(context, namespace, concurrency = 10) {
   const podList = await kubectl(context, namespace, [
     "get",
     "pods",
@@ -96,8 +117,7 @@ async function discoverVms(context, namespace) {
     p.startsWith("pod/virt-launcher-")
   ).map((p) => p.replace("pod/", ""));
 
-  const vms = [];
-  for (const pod of pods) {
+  const results = await runBatched(pods, concurrency, async (pod) => {
     const domain = await kubectl(context, namespace, [
       "exec",
       pod,
@@ -112,10 +132,14 @@ async function discoverVms(context, namespace) {
     ]);
     const domainName = domain.split("\n").filter(Boolean)[0];
     if (domainName) {
-      vms.push({ podName: pod, domain: domainName });
+      return { podName: pod, domain: domainName };
     }
-  }
-  return vms;
+    return null;
+  });
+
+  return results
+    .filter((r) => r.status === "fulfilled" && r.value !== null)
+    .map((r) => r.value);
 }
 
 function wrapForUser(command, user) {
@@ -212,7 +236,7 @@ async function guestExec(
 
 export const model = {
   type: "@bixu/kubevirt-vm",
-  version: "2026.03.14.1",
+  version: "2026.03.14.5",
   globalArguments: GlobalArgsSchema,
   resources: {
     vms: {
@@ -245,6 +269,12 @@ export const model = {
       lifetime: "infinite" as const,
       garbageCollection: 50,
     },
+    summary: {
+      description: "Summary of a fleet-wide operation",
+      schema: SummarySchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 10,
+    },
   },
   methods: {
     discover: {
@@ -252,7 +282,11 @@ export const model = {
       arguments: z.object({}),
       execute: async (_args, context) => {
         const g = context.globalArgs;
-        const vms = await discoverVms(g.kubeContext, g.namespace);
+        const vms = await discoverVms(
+          g.kubeContext,
+          g.namespace,
+          g.concurrency,
+        );
         context.logger.info("Discovered {count} VMs in {ctx}/{ns}", {
           count: vms.length,
           ctx: g.kubeContext,
@@ -284,7 +318,11 @@ export const model = {
       execute: async (args, context) => {
         const g = context.globalArgs;
         const runAs = args.user ?? g.user;
-        const vms = await discoverVms(g.kubeContext, g.namespace);
+        const vms = await discoverVms(
+          g.kubeContext,
+          g.namespace,
+          g.concurrency,
+        );
         const vm = vms.find((v) =>
           v.podName.includes(args.vm) || v.domain.includes(args.vm)
         );
@@ -345,7 +383,7 @@ export const model = {
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
-        let vms = await discoverVms(g.kubeContext, g.namespace);
+        let vms = await discoverVms(g.kubeContext, g.namespace, g.concurrency);
         if (args.filter) {
           vms = vms.filter((v) =>
             v.podName.includes(args.filter) || v.domain.includes(args.filter)
@@ -358,7 +396,9 @@ export const model = {
         });
 
         const handles = [];
-        for (const vm of vms) {
+        const statusCounts = {};
+        let failCount = 0;
+        await runBatched(vms, g.concurrency, async (vm) => {
           try {
             const result = await guestExec(
               g.kubeContext,
@@ -373,6 +413,7 @@ export const model = {
             const lines = result.stdout.trim().split("\n");
             const active = lines[0] || "unknown";
             const enabled = lines[1] || "unknown";
+            statusCounts[active] = (statusCounts[active] || 0) + 1;
 
             const handle = await context.writeResource(
               "serviceStatus",
@@ -399,13 +440,39 @@ export const model = {
               },
             );
           } catch (err) {
+            failCount++;
             context.logger.info("Failed to check {domain}: {error}", {
               domain: vm.domain,
               error: String(err),
             });
           }
-        }
-        return { dataHandles: handles };
+        });
+
+        const totalVMs = handles.length + failCount;
+        const statusParts = Object.entries(statusCounts)
+          .map(([s, n]) => `${s}: ${n}`)
+          .join(", ");
+        const summaryText =
+          `${args.service} across ${totalVMs} VMs — ${statusParts}${
+            failCount > 0 ? `, unreachable: ${failCount}` : ""
+          }`;
+
+        const summaryHandle = await context.writeResource(
+          "summary",
+          `checkService-${args.service}`,
+          {
+            method: "checkService",
+            totalVMs,
+            summary: summaryText,
+            details: {
+              ...statusCounts,
+              ...(failCount > 0 ? { unreachable: failCount } : {}),
+            },
+            generatedAt: new Date().toISOString(),
+          },
+        );
+
+        return { dataHandles: [summaryHandle, ...handles] };
       },
     },
 
@@ -424,7 +491,7 @@ export const model = {
       execute: async (args, context) => {
         const g = context.globalArgs;
         const runAs = args.user ?? g.user;
-        let vms = await discoverVms(g.kubeContext, g.namespace);
+        let vms = await discoverVms(g.kubeContext, g.namespace, g.concurrency);
         if (args.filter) {
           vms = vms.filter((v) =>
             v.podName.includes(args.filter) || v.domain.includes(args.filter)
@@ -438,7 +505,7 @@ export const model = {
         });
 
         const handles = [];
-        for (const vm of vms) {
+        await runBatched(vms, g.concurrency, async (vm) => {
           try {
             const result = await guestExec(
               g.kubeContext,
@@ -472,7 +539,7 @@ export const model = {
               error: String(err),
             });
           }
-        }
+        });
         return { dataHandles: handles };
       },
     },
@@ -493,7 +560,7 @@ export const model = {
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
-        let vms = await discoverVms(g.kubeContext, g.namespace);
+        let vms = await discoverVms(g.kubeContext, g.namespace, g.concurrency);
         if (args.filter) {
           vms = vms.filter((v) =>
             v.podName.includes(args.filter) || v.domain.includes(args.filter)
@@ -510,7 +577,7 @@ export const model = {
         });
 
         const handles = [];
-        for (const vm of vms) {
+        await runBatched(vms, g.concurrency, async (vm) => {
           try {
             const result = await guestExec(
               g.kubeContext,
@@ -563,7 +630,7 @@ export const model = {
               error: String(err),
             });
           }
-        }
+        });
         return { dataHandles: handles };
       },
     },
@@ -577,7 +644,7 @@ export const model = {
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
-        let vms = await discoverVms(g.kubeContext, g.namespace);
+        let vms = await discoverVms(g.kubeContext, g.namespace, g.concurrency);
         if (args.filter) {
           vms = vms.filter((v) =>
             v.podName.includes(args.filter) || v.domain.includes(args.filter)
@@ -589,7 +656,16 @@ export const model = {
         });
 
         const handles = [];
-        for (const vm of vms) {
+        let healthyCount = 0;
+        let failedUnitCount = 0;
+        let errorCount = 0;
+        let oomCount = 0;
+        let diskWarnCount = 0;
+        let unreachableCount = 0;
+        const failedUnitNames = {};
+        const oomVms = [];
+        const diskWarnVms = [];
+        await runBatched(vms, g.concurrency, async (vm) => {
           try {
             const result = await guestExec(
               g.kubeContext,
@@ -613,7 +689,6 @@ export const model = {
             const sections = result.stdout.split(
               /=== (FAILED|ERRORS|DISK|OOM) ===/,
             );
-            // sections: ["", "FAILED", content, "ERRORS", content, "DISK", content, "OOM", content]
             const failedRaw = (sections[2] || "").trim();
             const errorsRaw = (sections[4] || "").trim();
             const diskRaw = (sections[6] || "").trim();
@@ -657,14 +732,33 @@ export const model = {
             );
             handles.push(handle);
 
+            const vmName = vm.domain.replace(/^cicd_/, "");
             const issues = failedUnits.length + recentErrors.length +
               oomEvents.length;
             const diskWarnings = diskUsage.filter((d) =>
-              parseInt(d.usePct) >= 90
+              parseInt(d.usePct) >= 80
             );
+
+            failedUnitCount += failedUnits.length;
+            errorCount += recentErrors.length;
+            oomCount += oomEvents.length;
+            diskWarnCount += diskWarnings.length;
+            for (const u of failedUnits) {
+              const name = u.replace(/^●\s*/, "").split(/\s+/)[0] || u;
+              failedUnitNames[name] = (failedUnitNames[name] || 0) + 1;
+            }
+            if (oomEvents.length > 0) oomVms.push(vmName);
+            if (diskWarnings.length > 0) {
+              diskWarnVms.push(
+                `${vmName} (${diskWarnings[0].usePct} of ${
+                  diskWarnings[0].size
+                })`,
+              );
+            }
+
             if (issues > 0 || diskWarnings.length > 0) {
               context.logger.info(
-                "{domain}: {failed} failed units, {errors} errors, {oom} OOM events, {diskWarn} disks >=90%",
+                "{domain}: {failed} failed units, {errors} errors, {oom} OOM events, {diskWarn} disks >=80%",
                 {
                   domain: vm.domain,
                   failed: failedUnits.length,
@@ -674,18 +768,66 @@ export const model = {
                 },
               );
             } else {
-              context.logger.info("{domain}: healthy", {
-                domain: vm.domain,
-              });
+              healthyCount++;
             }
           } catch (err) {
+            unreachableCount++;
             context.logger.info("Failed to check {domain}: {error}", {
               domain: vm.domain,
               error: String(err),
             });
           }
+        });
+
+        const totalVMs = handles.length + unreachableCount;
+        const summaryParts = [`${healthyCount} healthy`];
+        const details: Record<string, string | number> = {
+          healthy: healthyCount,
+        };
+        if (failedUnitCount > 0) {
+          const unitSummary = Object.entries(failedUnitNames)
+            .map(([name, count]) => `${name} (${count})`)
+            .join(", ");
+          summaryParts.push(
+            `${failedUnitCount} failed units: ${unitSummary}`,
+          );
+          details.failedUnits = failedUnitCount;
+          details.failedUnitNames = unitSummary;
         }
-        return { dataHandles: handles };
+        if (errorCount > 0) {
+          summaryParts.push(`${errorCount} recent errors`);
+          details.recentErrors = errorCount;
+        }
+        if (oomCount > 0) {
+          summaryParts.push(`${oomCount} OOM kills: ${oomVms.join(", ")}`);
+          details.oomKills = oomCount;
+          details.oomVMs = oomVms.join(", ");
+        }
+        if (diskWarnCount > 0) {
+          summaryParts.push(
+            `${diskWarnCount} disks >=80%: ${diskWarnVms.join(", ")}`,
+          );
+          details.diskWarnings = diskWarnCount;
+          details.diskWarnVMs = diskWarnVms.join(", ");
+        }
+        if (unreachableCount > 0) {
+          summaryParts.push(`${unreachableCount} unreachable`);
+          details.unreachable = unreachableCount;
+        }
+
+        const summaryHandle = await context.writeResource(
+          "summary",
+          "healthCheck",
+          {
+            method: "healthCheck",
+            totalVMs,
+            summary: summaryParts.join(" | "),
+            details,
+            generatedAt: new Date().toISOString(),
+          },
+        );
+
+        return { dataHandles: [summaryHandle, ...handles] };
       },
     },
   },
