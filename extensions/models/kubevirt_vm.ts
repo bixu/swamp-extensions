@@ -10,6 +10,9 @@ const GlobalArgsSchema = z.object({
   user: z.string().default("nobody").describe(
     "Default user to run commands as inside VMs (set to 'root' to disable)",
   ),
+  concurrency: z.number().default(10).describe(
+    "Max VMs to process in parallel (default: 10)",
+  ),
 });
 
 const ServiceStatusSchema = z.object({
@@ -85,8 +88,6 @@ async function kubectl(context, namespace, args) {
   return stdout.trim();
 }
 
-const CONCURRENCY = 10;
-
 async function runBatched(items, concurrency, fn) {
   const results = [];
   for (let i = 0; i < items.length; i += concurrency) {
@@ -97,7 +98,7 @@ async function runBatched(items, concurrency, fn) {
   return results;
 }
 
-async function discoverVms(context, namespace) {
+async function discoverVms(context, namespace, concurrency = 10) {
   const podList = await kubectl(context, namespace, [
     "get",
     "pods",
@@ -108,7 +109,7 @@ async function discoverVms(context, namespace) {
     p.startsWith("pod/virt-launcher-")
   ).map((p) => p.replace("pod/", ""));
 
-  const results = await runBatched(pods, CONCURRENCY, async (pod) => {
+  const results = await runBatched(pods, concurrency, async (pod) => {
     const domain = await kubectl(context, namespace, [
       "exec",
       pod,
@@ -227,7 +228,7 @@ async function guestExec(
 
 export const model = {
   type: "@bixu/kubevirt-vm",
-  version: "2026.03.14.2",
+  version: "2026.03.14.3",
   globalArguments: GlobalArgsSchema,
   resources: {
     vms: {
@@ -267,7 +268,11 @@ export const model = {
       arguments: z.object({}),
       execute: async (_args, context) => {
         const g = context.globalArgs;
-        const vms = await discoverVms(g.kubeContext, g.namespace);
+        const vms = await discoverVms(
+          g.kubeContext,
+          g.namespace,
+          g.concurrency,
+        );
         context.logger.info("Discovered {count} VMs in {ctx}/{ns}", {
           count: vms.length,
           ctx: g.kubeContext,
@@ -299,7 +304,11 @@ export const model = {
       execute: async (args, context) => {
         const g = context.globalArgs;
         const runAs = args.user ?? g.user;
-        const vms = await discoverVms(g.kubeContext, g.namespace);
+        const vms = await discoverVms(
+          g.kubeContext,
+          g.namespace,
+          g.concurrency,
+        );
         const vm = vms.find((v) =>
           v.podName.includes(args.vm) || v.domain.includes(args.vm)
         );
@@ -360,7 +369,7 @@ export const model = {
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
-        let vms = await discoverVms(g.kubeContext, g.namespace);
+        let vms = await discoverVms(g.kubeContext, g.namespace, g.concurrency);
         if (args.filter) {
           vms = vms.filter((v) =>
             v.podName.includes(args.filter) || v.domain.includes(args.filter)
@@ -373,7 +382,7 @@ export const model = {
         });
 
         const handles = [];
-        await runBatched(vms, CONCURRENCY, async (vm) => {
+        await runBatched(vms, g.concurrency, async (vm) => {
           try {
             const result = await guestExec(
               g.kubeContext,
@@ -439,7 +448,7 @@ export const model = {
       execute: async (args, context) => {
         const g = context.globalArgs;
         const runAs = args.user ?? g.user;
-        let vms = await discoverVms(g.kubeContext, g.namespace);
+        let vms = await discoverVms(g.kubeContext, g.namespace, g.concurrency);
         if (args.filter) {
           vms = vms.filter((v) =>
             v.podName.includes(args.filter) || v.domain.includes(args.filter)
@@ -453,7 +462,7 @@ export const model = {
         });
 
         const handles = [];
-        await runBatched(vms, CONCURRENCY, async (vm) => {
+        await runBatched(vms, g.concurrency, async (vm) => {
           try {
             const result = await guestExec(
               g.kubeContext,
@@ -508,7 +517,7 @@ export const model = {
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
-        let vms = await discoverVms(g.kubeContext, g.namespace);
+        let vms = await discoverVms(g.kubeContext, g.namespace, g.concurrency);
         if (args.filter) {
           vms = vms.filter((v) =>
             v.podName.includes(args.filter) || v.domain.includes(args.filter)
@@ -525,7 +534,7 @@ export const model = {
         });
 
         const handles = [];
-        await runBatched(vms, CONCURRENCY, async (vm) => {
+        await runBatched(vms, g.concurrency, async (vm) => {
           try {
             const result = await guestExec(
               g.kubeContext,
@@ -592,7 +601,7 @@ export const model = {
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
-        let vms = await discoverVms(g.kubeContext, g.namespace);
+        let vms = await discoverVms(g.kubeContext, g.namespace, g.concurrency);
         if (args.filter) {
           vms = vms.filter((v) =>
             v.podName.includes(args.filter) || v.domain.includes(args.filter)
@@ -604,7 +613,7 @@ export const model = {
         });
 
         const handles = [];
-        await runBatched(vms, CONCURRENCY, async (vm) => {
+        await runBatched(vms, g.concurrency, async (vm) => {
           try {
             const result = await guestExec(
               g.kubeContext,
