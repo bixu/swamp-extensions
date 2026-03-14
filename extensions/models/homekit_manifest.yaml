@@ -1,9 +1,10 @@
 manifestVersion: 1
 name: "@bixu/homekit"
-version: "2026.03.14.2"
-description: "Discover HomeKit accessories on the local network via mDNS — pure TypeScript, no native dependencies"
+version: "2026.03.14.3"
+description: "Discover, pair with, and read sensors from HomeKit accessories — pure TypeScript HAP protocol implementation"
 models:
   - homekit.ts
+  - homekit_hap.ts
 labels:
   - homekit
   - iot
