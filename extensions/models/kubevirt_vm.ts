@@ -1,5 +1,8 @@
 import { z } from "npm:zod@4";
 
+const KUBECTL_VERSION = "v1.35.2";
+const SAFE_ARG_RE = /^[a-zA-Z0-9_.:\-\/=@]+$/;
+
 const GlobalArgsSchema = z.object({
   kubeContext: z.string().describe(
     "Kubernetes context name (e.g. dev-harvester, prod-harvester)",
@@ -12,6 +15,9 @@ const GlobalArgsSchema = z.object({
   ),
   concurrency: z.number().default(10).describe(
     "Max VMs to process in parallel (default: 10)",
+  ),
+  kubectlPath: z.string().default("kubectl").describe(
+    "Path to kubectl binary (default: kubectl from PATH)",
   ),
 });
 
@@ -81,8 +87,73 @@ const VmListSchema = z.object({
   discoveredAt: z.string(),
 });
 
-async function kubectl(context, namespace, args) {
-  const cmd = new Deno.Command("kubectl", {
+let verifiedKubectl: string | null = null;
+
+async function resolveKubectl(kubectlPath: string) {
+  if (verifiedKubectl) return verifiedKubectl;
+
+  // Resolve absolute path to avoid PATH manipulation
+  const typeCmd = new Deno.Command("sh", {
+    args: ["-c", `type ${kubectlPath}`],
+    stdout: "piped",
+    stderr: "piped",
+  });
+  const typeResult = await typeCmd.output();
+  if (!typeResult.success) {
+    throw new Error(
+      `kubectl not found at '${kubectlPath}'. Install kubectl or set kubectlPath in globalArguments.`,
+    );
+  }
+  const typeOutput = new TextDecoder().decode(typeResult.stdout).trim();
+  const pathMatch = typeOutput.match(/\/([\w./\-]+)/);
+  if (!pathMatch) {
+    throw new Error(
+      `Could not resolve kubectl path from: ${typeOutput}`,
+    );
+  }
+  const resolvedPath = "/" + pathMatch[1];
+
+  // Verify version matches pinned version
+  const versionCmd = new Deno.Command(resolvedPath, {
+    args: ["version", "--client", "-o", "json"],
+    stdout: "piped",
+    stderr: "piped",
+  });
+  const versionResult = await versionCmd.output();
+  if (!versionResult.success) {
+    throw new Error("Failed to check kubectl version");
+  }
+  const versionInfo = JSON.parse(
+    new TextDecoder().decode(versionResult.stdout),
+  );
+  const actual = versionInfo.clientVersion?.gitVersion;
+  if (actual !== KUBECTL_VERSION) {
+    throw new Error(
+      `kubectl version mismatch: expected ${KUBECTL_VERSION}, got ${actual}. Update KUBECTL_VERSION in kubevirt_vm.ts or upgrade kubectl.`,
+    );
+  }
+
+  verifiedKubectl = resolvedPath;
+  return resolvedPath;
+}
+
+function validateArg(arg: string) {
+  // Allow -- as the exec separator
+  if (arg === "--") return;
+  // Allow JSON payloads (used for qemu-agent-command)
+  if (arg.startsWith("{")) return;
+  if (!SAFE_ARG_RE.test(arg)) {
+    throw new Error(`Unsafe kubectl argument rejected: ${arg}`);
+  }
+}
+
+async function kubectl(kubectlPath, context, namespace, args) {
+  const bin = await resolveKubectl(kubectlPath);
+  validateArg(context);
+  validateArg(namespace);
+  for (const arg of args) validateArg(arg);
+
+  const cmd = new Deno.Command(bin, {
     args: ["--context", context, "-n", namespace, ...args],
     stdout: "piped",
     stderr: "piped",
@@ -106,8 +177,8 @@ async function runBatched(items, concurrency, fn) {
   return results;
 }
 
-async function discoverVms(context, namespace, concurrency = 10) {
-  const podList = await kubectl(context, namespace, [
+async function discoverVms(kubectlPath, context, namespace, concurrency = 10) {
+  const podList = await kubectl(kubectlPath, context, namespace, [
     "get",
     "pods",
     "-o",
@@ -118,7 +189,7 @@ async function discoverVms(context, namespace, concurrency = 10) {
   ).map((p) => p.replace("pod/", ""));
 
   const results = await runBatched(pods, concurrency, async (pod) => {
-    const domain = await kubectl(context, namespace, [
+    const domain = await kubectl(kubectlPath, context, namespace, [
       "exec",
       pod,
       "-c",
@@ -150,6 +221,7 @@ function wrapForUser(command, user) {
 }
 
 async function guestExec(
+  kubectlPath,
   context,
   namespace,
   pod,
@@ -168,7 +240,7 @@ async function guestExec(
     },
   });
 
-  const pidJson = await kubectl(context, namespace, [
+  const pidJson = await kubectl(kubectlPath, context, namespace, [
     "exec",
     pod,
     "-c",
@@ -196,7 +268,7 @@ async function guestExec(
   // Poll until exited or timeout
   const deadline = Date.now() + timeoutSecs * 1000;
   while (Date.now() < deadline) {
-    const statusJson = await kubectl(context, namespace, [
+    const statusJson = await kubectl(kubectlPath, context, namespace, [
       "exec",
       pod,
       "-c",
@@ -236,7 +308,7 @@ async function guestExec(
 
 export const model = {
   type: "@bixu/kubevirt-vm",
-  version: "2026.03.14.5",
+  version: "2026.03.14.6",
   globalArguments: GlobalArgsSchema,
   resources: {
     vms: {
@@ -283,6 +355,7 @@ export const model = {
       execute: async (_args, context) => {
         const g = context.globalArgs;
         const vms = await discoverVms(
+          g.kubectlPath,
           g.kubeContext,
           g.namespace,
           g.concurrency,
@@ -319,6 +392,7 @@ export const model = {
         const g = context.globalArgs;
         const runAs = args.user ?? g.user;
         const vms = await discoverVms(
+          g.kubectlPath,
           g.kubeContext,
           g.namespace,
           g.concurrency,
@@ -341,6 +415,7 @@ export const model = {
         });
 
         const result = await guestExec(
+          g.kubectlPath,
           g.kubeContext,
           g.namespace,
           vm.podName,
@@ -383,7 +458,12 @@ export const model = {
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
-        let vms = await discoverVms(g.kubeContext, g.namespace, g.concurrency);
+        let vms = await discoverVms(
+          g.kubectlPath,
+          g.kubeContext,
+          g.namespace,
+          g.concurrency,
+        );
         if (args.filter) {
           vms = vms.filter((v) =>
             v.podName.includes(args.filter) || v.domain.includes(args.filter)
@@ -401,6 +481,7 @@ export const model = {
         await runBatched(vms, g.concurrency, async (vm) => {
           try {
             const result = await guestExec(
+              g.kubectlPath,
               g.kubeContext,
               g.namespace,
               vm.podName,
@@ -491,7 +572,12 @@ export const model = {
       execute: async (args, context) => {
         const g = context.globalArgs;
         const runAs = args.user ?? g.user;
-        let vms = await discoverVms(g.kubeContext, g.namespace, g.concurrency);
+        let vms = await discoverVms(
+          g.kubectlPath,
+          g.kubeContext,
+          g.namespace,
+          g.concurrency,
+        );
         if (args.filter) {
           vms = vms.filter((v) =>
             v.podName.includes(args.filter) || v.domain.includes(args.filter)
@@ -508,6 +594,7 @@ export const model = {
         await runBatched(vms, g.concurrency, async (vm) => {
           try {
             const result = await guestExec(
+              g.kubectlPath,
               g.kubeContext,
               g.namespace,
               vm.podName,
@@ -560,7 +647,12 @@ export const model = {
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
-        let vms = await discoverVms(g.kubeContext, g.namespace, g.concurrency);
+        let vms = await discoverVms(
+          g.kubectlPath,
+          g.kubeContext,
+          g.namespace,
+          g.concurrency,
+        );
         if (args.filter) {
           vms = vms.filter((v) =>
             v.podName.includes(args.filter) || v.domain.includes(args.filter)
@@ -580,6 +672,7 @@ export const model = {
         await runBatched(vms, g.concurrency, async (vm) => {
           try {
             const result = await guestExec(
+              g.kubectlPath,
               g.kubeContext,
               g.namespace,
               vm.podName,
@@ -644,7 +737,12 @@ export const model = {
       }),
       execute: async (args, context) => {
         const g = context.globalArgs;
-        let vms = await discoverVms(g.kubeContext, g.namespace, g.concurrency);
+        let vms = await discoverVms(
+          g.kubectlPath,
+          g.kubeContext,
+          g.namespace,
+          g.concurrency,
+        );
         if (args.filter) {
           vms = vms.filter((v) =>
             v.podName.includes(args.filter) || v.domain.includes(args.filter)
@@ -668,6 +766,7 @@ export const model = {
         await runBatched(vms, g.concurrency, async (vm) => {
           try {
             const result = await guestExec(
+              g.kubectlPath,
               g.kubeContext,
               g.namespace,
               vm.podName,
