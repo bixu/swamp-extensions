@@ -42,6 +42,24 @@ const SystemdShowSchema = z.object({
   checkedAt: z.string(),
 });
 
+const HealthCheckSchema = z.object({
+  vmName: z.string(),
+  podName: z.string(),
+  domain: z.string(),
+  failedUnits: z.array(z.string()),
+  recentErrors: z.array(z.string()),
+  diskUsage: z.array(z.object({
+    filesystem: z.string(),
+    size: z.string(),
+    used: z.string(),
+    avail: z.string(),
+    usePct: z.string(),
+    mount: z.string(),
+  })),
+  oomEvents: z.array(z.string()),
+  checkedAt: z.string(),
+});
+
 const VmListSchema = z.object({
   context: z.string(),
   namespace: z.string(),
@@ -194,7 +212,7 @@ async function guestExec(
 
 export const model = {
   type: "@bixu/kubevirt-vm",
-  version: "2026.03.13.3",
+  version: "2026.03.14.1",
   globalArguments: GlobalArgsSchema,
   resources: {
     vms: {
@@ -218,6 +236,12 @@ export const model = {
     systemdUnit: {
       description: "Systemd unit properties from a VM",
       schema: SystemdShowSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 50,
+    },
+    healthCheck: {
+      description: "Health check results from a VM",
+      schema: HealthCheckSchema,
       lifetime: "infinite" as const,
       garbageCollection: 50,
     },
@@ -535,6 +559,127 @@ export const model = {
             );
           } catch (err) {
             context.logger.info("Failed on {domain}: {error}", {
+              domain: vm.domain,
+              error: String(err),
+            });
+          }
+        }
+        return { dataHandles: handles };
+      },
+    },
+    healthCheck: {
+      description:
+        "Run health checks across all VMs (or a filtered subset) — failed units, recent errors, disk pressure, OOM events",
+      arguments: z.object({
+        filter: z.string().optional().describe(
+          "Only check VMs matching this string",
+        ),
+      }),
+      execute: async (args, context) => {
+        const g = context.globalArgs;
+        let vms = await discoverVms(g.kubeContext, g.namespace);
+        if (args.filter) {
+          vms = vms.filter((v) =>
+            v.podName.includes(args.filter) || v.domain.includes(args.filter)
+          );
+        }
+
+        context.logger.info("Health-checking {count} VMs", {
+          count: vms.length,
+        });
+
+        const handles = [];
+        for (const vm of vms) {
+          try {
+            const result = await guestExec(
+              g.kubeContext,
+              g.namespace,
+              vm.podName,
+              vm.domain,
+              [
+                "echo '=== FAILED ==='",
+                "systemctl --failed --no-legend 2>/dev/null || true",
+                "echo '=== ERRORS ==='",
+                "journalctl -p err --since '1 hour ago' --no-pager -q 2>/dev/null | tail -20 || true",
+                "echo '=== DISK ==='",
+                "df -h / /var /tmp 2>/dev/null | tail -n +2 || true",
+                "echo '=== OOM ==='",
+                "dmesg 2>/dev/null | grep -i 'out of memory' | tail -5 || true",
+              ].join(" && "),
+              30,
+              "root",
+            );
+
+            const sections = result.stdout.split(
+              /=== (FAILED|ERRORS|DISK|OOM) ===/,
+            );
+            // sections: ["", "FAILED", content, "ERRORS", content, "DISK", content, "OOM", content]
+            const failedRaw = (sections[2] || "").trim();
+            const errorsRaw = (sections[4] || "").trim();
+            const diskRaw = (sections[6] || "").trim();
+            const oomRaw = (sections[8] || "").trim();
+
+            const failedUnits = failedRaw
+              ? failedRaw.split("\n").filter(Boolean)
+              : [];
+            const recentErrors = errorsRaw
+              ? errorsRaw.split("\n").filter(Boolean)
+              : [];
+            const oomEvents = oomRaw ? oomRaw.split("\n").filter(Boolean) : [];
+
+            const diskUsage = diskRaw
+              ? diskRaw.split("\n").filter(Boolean).map((line) => {
+                const parts = line.split(/\s+/);
+                return {
+                  filesystem: parts[0] || "",
+                  size: parts[1] || "",
+                  used: parts[2] || "",
+                  avail: parts[3] || "",
+                  usePct: parts[4] || "",
+                  mount: parts[5] || "",
+                };
+              })
+              : [];
+
+            const handle = await context.writeResource(
+              "healthCheck",
+              vm.domain,
+              {
+                vmName: vm.domain.replace(/^cicd_/, ""),
+                podName: vm.podName,
+                domain: vm.domain,
+                failedUnits,
+                recentErrors,
+                diskUsage,
+                oomEvents,
+                checkedAt: new Date().toISOString(),
+              },
+            );
+            handles.push(handle);
+
+            const issues = failedUnits.length + recentErrors.length +
+              oomEvents.length;
+            const diskWarnings = diskUsage.filter((d) =>
+              parseInt(d.usePct) >= 90
+            );
+            if (issues > 0 || diskWarnings.length > 0) {
+              context.logger.info(
+                "{domain}: {failed} failed units, {errors} errors, {oom} OOM events, {diskWarn} disks >=90%",
+                {
+                  domain: vm.domain,
+                  failed: failedUnits.length,
+                  errors: recentErrors.length,
+                  oom: oomEvents.length,
+                  diskWarn: diskWarnings.length,
+                },
+              );
+            } else {
+              context.logger.info("{domain}: healthy", {
+                domain: vm.domain,
+              });
+            }
+          } catch (err) {
+            context.logger.info("Failed to check {domain}: {error}", {
               domain: vm.domain,
               error: String(err),
             });
