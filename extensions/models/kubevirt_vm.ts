@@ -85,6 +85,18 @@ async function kubectl(context, namespace, args) {
   return stdout.trim();
 }
 
+const CONCURRENCY = 10;
+
+async function runBatched(items, concurrency, fn) {
+  const results = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const batchResults = await Promise.allSettled(batch.map(fn));
+    results.push(...batchResults);
+  }
+  return results;
+}
+
 async function discoverVms(context, namespace) {
   const podList = await kubectl(context, namespace, [
     "get",
@@ -96,8 +108,7 @@ async function discoverVms(context, namespace) {
     p.startsWith("pod/virt-launcher-")
   ).map((p) => p.replace("pod/", ""));
 
-  const vms = [];
-  for (const pod of pods) {
+  const results = await runBatched(pods, CONCURRENCY, async (pod) => {
     const domain = await kubectl(context, namespace, [
       "exec",
       pod,
@@ -112,10 +123,14 @@ async function discoverVms(context, namespace) {
     ]);
     const domainName = domain.split("\n").filter(Boolean)[0];
     if (domainName) {
-      vms.push({ podName: pod, domain: domainName });
+      return { podName: pod, domain: domainName };
     }
-  }
-  return vms;
+    return null;
+  });
+
+  return results
+    .filter((r) => r.status === "fulfilled" && r.value !== null)
+    .map((r) => r.value);
 }
 
 function wrapForUser(command, user) {
@@ -212,7 +227,7 @@ async function guestExec(
 
 export const model = {
   type: "@bixu/kubevirt-vm",
-  version: "2026.03.14.1",
+  version: "2026.03.14.2",
   globalArguments: GlobalArgsSchema,
   resources: {
     vms: {
@@ -358,7 +373,7 @@ export const model = {
         });
 
         const handles = [];
-        for (const vm of vms) {
+        await runBatched(vms, CONCURRENCY, async (vm) => {
           try {
             const result = await guestExec(
               g.kubeContext,
@@ -404,7 +419,7 @@ export const model = {
               error: String(err),
             });
           }
-        }
+        });
         return { dataHandles: handles };
       },
     },
@@ -438,7 +453,7 @@ export const model = {
         });
 
         const handles = [];
-        for (const vm of vms) {
+        await runBatched(vms, CONCURRENCY, async (vm) => {
           try {
             const result = await guestExec(
               g.kubeContext,
@@ -472,7 +487,7 @@ export const model = {
               error: String(err),
             });
           }
-        }
+        });
         return { dataHandles: handles };
       },
     },
@@ -510,7 +525,7 @@ export const model = {
         });
 
         const handles = [];
-        for (const vm of vms) {
+        await runBatched(vms, CONCURRENCY, async (vm) => {
           try {
             const result = await guestExec(
               g.kubeContext,
@@ -563,7 +578,7 @@ export const model = {
               error: String(err),
             });
           }
-        }
+        });
         return { dataHandles: handles };
       },
     },
@@ -589,7 +604,7 @@ export const model = {
         });
 
         const handles = [];
-        for (const vm of vms) {
+        await runBatched(vms, CONCURRENCY, async (vm) => {
           try {
             const result = await guestExec(
               g.kubeContext,
@@ -684,7 +699,7 @@ export const model = {
               error: String(err),
             });
           }
-        }
+        });
         return { dataHandles: handles };
       },
     },
