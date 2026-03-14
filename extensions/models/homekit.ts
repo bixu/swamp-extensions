@@ -1,11 +1,14 @@
 import { z } from "npm:zod@4";
+import bonjourModule from "npm:bonjour-service@1.3.0";
+
+// deno-lint-ignore no-explicit-any
+const Bonjour = (bonjourModule as any).default || bonjourModule;
+
+const HAP_SERVICE_TYPE = "hap";
 
 const GlobalArgsSchema = z.object({
   discoveryTimeout: z.number().default(10).describe(
     "Seconds to wait for mDNS discovery (default: 10)",
-  ),
-  denoPath: z.string().default("deno").describe(
-    "Path to deno binary (default: deno from PATH)",
   ),
 });
 
@@ -71,24 +74,38 @@ const SummarySchema = z.object({
   generatedAt: z.string(),
 });
 
-async function runDiscovery(denoPath, scriptPath, timeout) {
-  const cmd = new Deno.Command(denoPath, {
-    args: ["run", "--allow-all", scriptPath, String(timeout)],
-    stdout: "piped",
-    stderr: "piped",
+function discoverAccessories(
+  timeout: number,
+): Promise<Record<string, unknown>[]> {
+  return new Promise((resolve) => {
+    const bonjour = new Bonjour();
+    const found: Record<string, unknown>[] = [];
+
+    const browser = bonjour.find(
+      { type: HAP_SERVICE_TYPE, protocol: "tcp" },
+      // deno-lint-ignore no-explicit-any
+      (service: any) => {
+        found.push({
+          name: service.name,
+          host: service.host,
+          port: service.port,
+          addresses: service.addresses,
+          txt: service.txt,
+        });
+      },
+    );
+
+    setTimeout(() => {
+      browser.stop();
+      bonjour.destroy();
+      resolve(found);
+    }, timeout * 1000);
   });
-  const result = await cmd.output();
-  const stderr = new TextDecoder().decode(result.stderr);
-  if (!result.success) {
-    throw new Error(`HomeKit discovery failed: ${stderr}`);
-  }
-  const stdout = new TextDecoder().decode(result.stdout).trim();
-  return JSON.parse(stdout);
 }
 
 export const model = {
   type: "@bixu/homekit",
-  version: "2026.03.14.1",
+  version: "2026.03.14.2",
   globalArguments: GlobalArgsSchema,
   resources: {
     discovery: {
@@ -122,29 +139,33 @@ export const model = {
         const g = context.globalArgs;
         const timeout = args.timeout ?? g.discoveryTimeout;
 
-        const scriptPath =
-          `${context.repoDir}/extensions/scripts/homekit_discover.ts`;
-
         context.logger.info("Starting HomeKit mDNS discovery ({timeout}s)", {
           timeout,
         });
 
-        const raw = await runDiscovery(g.denoPath, scriptPath, timeout);
+        const raw = await discoverAccessories(timeout);
 
-        const accessories = raw.map((d) => ({
-          name: String(d.name || "Unknown"),
-          address: String(d.address || ""),
-          port: Number(d.port || 0),
-          id: String(d.id || ""),
-          model: String(d.md || "Unknown"),
-          category: CategoryNames[d.ci] || `Unknown (${d.ci})`,
-          categoryId: Number(d.ci || 0),
-          configNumber: Number(d["c#"] || 0),
-          stateNumber: Number(d["s#"] || 0),
-          protocolVersion: String(d.pv || ""),
-          paired: d.sf === 0,
-          discoveredAt: new Date().toISOString(),
-        }));
+        // deno-lint-ignore no-explicit-any
+        const accessories = raw.map((d: any) => {
+          const txt = d.txt || {};
+          const ci = Number(txt.ci || 0);
+          return {
+            name: String(d.name || "Unknown"),
+            address: ((d.addresses as string[]) || []).find((a: string) =>
+              a.includes(".")
+            ) || String(d.host || ""),
+            port: Number(d.port || 0),
+            id: String(txt.id || ""),
+            model: String(txt.md || "Unknown"),
+            category: CategoryNames[ci] || `Unknown (${ci})`,
+            categoryId: ci,
+            configNumber: Number(txt["c#"] || 0),
+            stateNumber: Number(txt["s#"] || 0),
+            protocolVersion: String(txt.pv || ""),
+            paired: txt.sf === "0" || txt.sf === 0,
+            discoveredAt: new Date().toISOString(),
+          };
+        });
 
         const handles = [];
 

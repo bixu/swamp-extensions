@@ -1,0 +1,10 @@
+manifestVersion: 1
+name: "@bixu/homekit"
+version: "2026.03.14.2"
+description: "Discover HomeKit accessories on the local network via mDNS — pure TypeScript, no native dependencies"
+models:
+  - homekit.ts
+labels:
+  - homekit
+  - iot
+  - mdns
