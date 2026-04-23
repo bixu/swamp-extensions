@@ -1,3 +1,4 @@
+/** Convert a Markdown table into an aligned plain-text code block for Slack. */
 export function formatTable(tableBlock: string): string {
   const lines = tableBlock.trim().split("\n");
   // Remove separator rows (|---|---|)
@@ -28,6 +29,7 @@ export function formatTable(tableBlock: string): string {
   return "```\n" + header + "\n" + underline + "\n" + body + "\n```";
 }
 
+/** Convert standard Markdown into Slack's mrkdwn format. */
 export function markdownToSlackMrkdwn(md: string): string {
   const codeBlocks: string[] = [];
   let text = md;
@@ -75,6 +77,7 @@ export function markdownToSlackMrkdwn(md: string): string {
   return text;
 }
 
+/** Split mrkdwn text into Slack Block Kit section blocks that fit within the API size limit. */
 export function splitIntoBlocks(
   text: string,
   limit = 3000,
