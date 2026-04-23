@@ -107,6 +107,7 @@ export const model = {
     {
       fromVersion: "2026.03.01.5",
       toVersion: "2026.04.23.1",
+      description: "Mark slackToken sensitive; write fallback CSV to tempdir",
       upgradeAttributes: (old) => old,
     },
   ],
