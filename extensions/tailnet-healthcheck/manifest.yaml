@@ -1,0 +1,19 @@
+manifestVersion: 1
+name: "@bixu/tailnet-healthcheck"
+version: "2026.04.23.2"
+description: "Tailnet health reporting — find devices running outdated Tailscale clients and alert via Slack"
+repository: https://github.com/bixu/swamp-extensions
+additionalFiles:
+  - README.md
+  - LICENSE.txt
+models:
+  - tailnet_healthcheck.ts
+platforms:
+  - darwin-aarch64
+  - darwin-x86_64
+  - linux-x86_64
+  - linux-aarch64
+labels:
+  - tailscale
+  - security
+  - networking
