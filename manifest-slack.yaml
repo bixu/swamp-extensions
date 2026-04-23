@@ -4,7 +4,7 @@ version: "2026.04.23.1"
 description: "Send Markdown messages to Slack channels via the Slack Web API"
 repository: https://github.com/bixu/swamp-extensions
 additionalFiles:
-  - README.md
+  - README-slack.md
   - LICENSE.txt
 models:
   - slack.ts
