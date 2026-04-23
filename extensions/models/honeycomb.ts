@@ -1,3 +1,11 @@
+/**
+ * @module
+ * Honeycomb extension model for swamp.
+ *
+ * Manages Honeycomb resources (environments, API keys, datasets, triggers,
+ * boards, columns, derived columns, SLOs, and more) via both the v2
+ * Management API and the v1 Configuration API.
+ */
 import { z } from "npm:zod@4";
 import {
   assertOk,
@@ -19,13 +27,17 @@ import {
 
 const GlobalArgsSchema = z.object({
   teamSlug: z.string().describe("Honeycomb team slug"),
-  apiKeyId: z.string().describe("Honeycomb Management Key ID"),
-  apiKeySecret: z.string().describe("Honeycomb Management Key secret"),
+  apiKeyId: z.string().meta({ sensitive: true }).describe(
+    "Honeycomb Management Key ID",
+  ),
+  apiKeySecret: z.string().meta({ sensitive: true }).describe(
+    "Honeycomb Management Key secret",
+  ),
   region: z
     .enum(["us", "eu"])
     .default("us")
     .describe("Honeycomb region (us or eu)"),
-  configKey: z.string().optional().describe(
+  configKey: z.string().optional().meta({ sensitive: true }).describe(
     "Honeycomb Configuration Key (for v1 API resources)",
   ),
 });
@@ -60,9 +72,18 @@ const ResourceArg = z.object({
   ),
 });
 
+/** Honeycomb extension model definition. */
 export const model = {
   type: "@bixu/honeycomb",
-  version: "2026.03.06.2",
+  version: "2026.04.23.1",
+  upgrades: [
+    {
+      fromVersion: "2026.03.06.2",
+      toVersion: "2026.04.23.1",
+      description:
+        "Mark API key fields as sensitive; add quality metadata (JSDoc, README, LICENSE)",
+    },
+  ],
   globalArguments: GlobalArgsSchema,
   resources: {
     resource: {
