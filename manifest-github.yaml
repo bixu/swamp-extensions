@@ -6,7 +6,7 @@ description: "GitHub resource models (repos, issues, PRs, members) using Octokit
 repository: https://github.com/bixu/swamp-extensions
 
 additionalFiles:
-  - README.md
+  - README-github.md
   - LICENSE.txt
 
 models:

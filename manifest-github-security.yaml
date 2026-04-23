@@ -6,7 +6,7 @@ description: "GitHub repository security auditing with support for native featur
 repository: https://github.com/bixu/swamp-extensions
 
 additionalFiles:
-  - README.md
+  - README-github.md
   - LICENSE.txt
 
 models:
