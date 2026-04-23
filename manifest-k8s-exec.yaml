@@ -4,7 +4,7 @@ version: "2026.04.23.1"
 description: "Execute commands in Kubernetes pods via the Kubernetes API — single pod exec and fleet-wide parallel exec with label selectors"
 repository: https://github.com/bixu/swamp-extensions
 additionalFiles:
-  - README.md
+  - README-k8s-exec.md
   - LICENSE.txt
 models:
   - k8s_exec.ts
