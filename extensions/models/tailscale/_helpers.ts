@@ -6,6 +6,7 @@ export const TailscaleGlobalArgsSchema = z.object({
   apiKey: z
     .string()
     .optional()
+    .meta({ sensitive: true })
     .describe(
       "Tailscale API key. Use: ${{ vault.get('tailscale', 'API_KEY') }}",
     ),
@@ -13,6 +14,7 @@ export const TailscaleGlobalArgsSchema = z.object({
   oauthClientSecret: z
     .string()
     .optional()
+    .meta({ sensitive: true })
     .describe(
       "OAuth client secret. Use: ${{ vault.get('tailscale', 'OAUTH_SECRET') }}",
     ),
