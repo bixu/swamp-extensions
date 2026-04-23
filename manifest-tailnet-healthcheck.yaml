@@ -4,7 +4,7 @@ version: "2026.04.23.1"
 description: "Tailnet health reporting — find devices running outdated Tailscale clients and alert via Slack"
 repository: https://github.com/bixu/swamp-extensions
 additionalFiles:
-  - README.md
+  - README-tailnet-healthcheck.md
   - LICENSE.txt
 models:
   - tailnet_healthcheck.ts
