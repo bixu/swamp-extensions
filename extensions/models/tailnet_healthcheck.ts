@@ -1,3 +1,12 @@
+/**
+ * @module
+ *
+ * Tailnet health reporting extension for swamp. Queries the Tailscale API to
+ * find devices running outdated client versions below the minimum safe version
+ * derived from Tailscale security bulletins. Reports can be sent to Slack as
+ * threaded messages with a CSV attachment.
+ */
+
 import { z } from "npm:zod@4";
 import { WebClient } from "npm:@slack/web-api@7.14.1";
 import Parser from "npm:rss-parser@3";
@@ -28,6 +37,7 @@ const GlobalArgsSchema = TailscaleGlobalArgsSchema.extend({
   slackToken: z
     .string()
     .optional()
+    .meta({ sensitive: true })
     .describe("Slack bot token (required if slackChannel is set)"),
 });
 
@@ -89,9 +99,18 @@ async function fetchSecurityFloor(
   return highest;
 }
 
+/** Tailnet health-check model — queries Tailscale devices and reports outdated clients, with optional Slack delivery. */
 export const model = {
   type: "@bixu/tailnet-healthcheck",
-  version: "2026.03.01.5",
+  version: "2026.04.23.1",
+  upgrades: [
+    {
+      fromVersion: "2026.03.01.5",
+      toVersion: "2026.04.23.1",
+      description: "Mark slackToken sensitive; write fallback CSV to tempdir",
+      upgradeAttributes: (old) => old,
+    },
+  ],
   globalArguments: GlobalArgsSchema,
   resources: {
     outdatedClients: {
@@ -253,7 +272,10 @@ export const model = {
                 channel,
               });
             } catch (err) {
-              const localPath = `./${filename}`;
+              const tmpDir = await Deno.makeTempDir({
+                prefix: "swamp-tailnet-",
+              });
+              const localPath = `${tmpDir}/${filename}`;
               await Deno.writeTextFile(localPath, csv);
 
               context.logger.info(
