@@ -1,0 +1,19 @@
+manifestVersion: 1
+name: "@bixu/k8s/exec"
+version: "2026.04.23.1"
+description: "Execute commands in Kubernetes pods via the Kubernetes API — single pod exec and fleet-wide parallel exec with label selectors"
+repository: https://github.com/bixu/swamp-extensions
+additionalFiles:
+  - README.md
+  - LICENSE.txt
+models:
+  - k8s_exec.ts
+platforms:
+  - darwin-aarch64
+  - darwin-x86_64
+  - linux-x86_64
+  - linux-aarch64
+labels:
+  - kubernetes
+  - exec
+  - k8s
