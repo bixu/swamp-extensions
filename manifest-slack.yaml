@@ -1,0 +1,18 @@
+manifestVersion: 1
+name: "@bixu/slack"
+version: "2026.04.23.1"
+description: "Send Markdown messages to Slack channels via the Slack Web API"
+repository: https://github.com/bixu/swamp-extensions
+additionalFiles:
+  - README-slack.md
+  - LICENSE.txt
+models:
+  - slack.ts
+platforms:
+  - darwin-aarch64
+  - darwin-x86_64
+  - linux-x86_64
+  - linux-aarch64
+labels:
+  - slack
+  - messaging

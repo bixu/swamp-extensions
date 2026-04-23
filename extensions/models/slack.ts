@@ -1,3 +1,12 @@
+/**
+ * @module
+ * A swamp extension model for sending Markdown-formatted messages to Slack
+ * channels via the Slack Web API. Converts standard Markdown (headings, bold,
+ * links, tables, code blocks) into Slack's mrkdwn format and automatically
+ * splits long messages into multiple Block Kit sections to stay within API
+ * limits.
+ */
+
 import { z } from "npm:zod@4";
 import { WebClient } from "npm:@slack/web-api@7.14.1";
 import {
@@ -11,6 +20,7 @@ export { formatTable, markdownToSlackMrkdwn, splitIntoBlocks };
 const GlobalArgsSchema = z.object({
   slackOauthToken: z
     .string()
+    .meta({ sensitive: true })
     .describe("Slack Bot OAuth token (xoxb-...). Requires chat:write scope"),
 });
 
@@ -21,6 +31,7 @@ const ResultSchema = z.object({
   permalink: z.string(),
 });
 
+/** Slack extension model — send Markdown messages to Slack channels. */
 export const model = {
   type: "@bixu/slack",
   version: "2026.03.01.2",
