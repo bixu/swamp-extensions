@@ -4,7 +4,7 @@ version: "2026.04.23.1"
 description: "Manage Honeycomb resources (environments, API keys, datasets) via the Honeycomb Management and Configuration APIs"
 repository: https://github.com/bixu/swamp-extensions
 additionalFiles:
-  - README.md
+  - README-honeycomb.md
   - LICENSE.txt
 models:
   - honeycomb.ts
