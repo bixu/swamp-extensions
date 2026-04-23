@@ -371,6 +371,7 @@ export const model = {
     {
       fromVersion: "2026.03.17.1",
       toVersion: "2026.04.23.1",
+      description: "Guard podFilter against ReDoS; add quality metadata",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
