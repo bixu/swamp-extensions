@@ -8,7 +8,9 @@ import {
 } from "./github_helpers.ts";
 
 const GlobalArgsSchema = z.object({
-  token: z.string().describe("GitHub personal access token"),
+  token: z.string().meta({ sensitive: true }).describe(
+    "GitHub personal access token",
+  ),
   org: z.string().optional().describe(
     "Default GitHub organization (can be overridden per method)",
   ),

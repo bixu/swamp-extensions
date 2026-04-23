@@ -2,6 +2,22 @@ manifestVersion: 1
 name: "@bixu/github-security"
 version: "2026.04.23.1"
 description: "GitHub repository security auditing with support for native features and third-party tool detection"
+
+repository: https://github.com/bixu/swamp-extensions
+
+additionalFiles:
+  - README.md
+  - LICENSE.txt
+
+models:
+  - github_security.ts
+
+platforms:
+  - darwin-aarch64
+  - darwin-x86_64
+  - linux-x86_64
+  - linux-aarch64
+
 labels:
   - github
   - security

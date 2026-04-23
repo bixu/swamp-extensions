@@ -9,7 +9,9 @@ import {
 } from "./github_security_helpers.ts";
 
 const GlobalArgsSchema = z.object({
-  token: z.string().describe("GitHub personal access token"),
+  token: z.string().meta({ sensitive: true }).describe(
+    "GitHub personal access token",
+  ),
 });
 
 const SummarySchema = z.object({
