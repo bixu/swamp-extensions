@@ -12,6 +12,6 @@
     "include": ["**/*_test.ts"]
   },
   "tasks": {
-    "test": "deno test --no-check --allow-env --allow-read --allow-write"
+    "test": "deno test --allow-env --allow-read --allow-write"
   }
 }

@@ -480,8 +480,9 @@ Deno.test("cachedJsonFetch separates GET vs POST cache keys", async () => {
   let calls = 0;
   const fakeFetch: typeof fetch = (_url, init) => {
     calls++;
+    const ri = init as RequestInit | undefined;
     return Promise.resolve(
-      new Response(JSON.stringify({ method: init?.method ?? "GET" }), {
+      new Response(JSON.stringify({ method: ri?.method ?? "GET" }), {
         status: 200,
         headers: { "content-type": "application/json" },
       }),
@@ -746,8 +747,9 @@ Deno.test("cachedJsonFetch uses distinct keys for same URL with different bodies
   let responseCount = 0;
   const fakeFetch: typeof fetch = (_url, init) => {
     responseCount++;
+    const ri = init as RequestInit | undefined;
     return Promise.resolve(
-      new Response(JSON.stringify({ body: init?.body ?? "none" }), {
+      new Response(JSON.stringify({ body: ri?.body ?? "none" }), {
         status: 200,
         headers: { "content-type": "application/json" },
       }),
