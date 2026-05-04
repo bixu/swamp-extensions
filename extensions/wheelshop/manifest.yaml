@@ -1,0 +1,22 @@
+manifestVersion: 1
+name: "@bixu/wheelshop"
+version: "2026.05.04.1"
+description: "Community-TS guardrail for swamp extension authors — search npm/jsr for proven libraries, filter by trust gates (downloads, license, recency, vulnerabilities), and stop reinventing wheels"
+repository: https://github.com/bixu/swamp-extensions
+additionalFiles:
+  - README.md
+  - LICENSE.txt
+models:
+  - wheelshop.ts
+platforms:
+  - darwin-aarch64
+  - darwin-x86_64
+  - linux-x86_64
+  - linux-aarch64
+labels:
+  - npm
+  - jsr
+  - dependencies
+  - supply-chain
+  - typescript
+  - guardrail
