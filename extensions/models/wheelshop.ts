@@ -186,6 +186,29 @@ async function npmLatestManifest(
   }
 }
 
+/**
+ * Fetch the published date for a specific version from the npm registry's
+ * full package doc. The abbreviated `vnd.npm.install-v1+json` view strips
+ * the `time` map, so we have to take the larger payload (cached for 24h).
+ */
+async function npmPublishDate(
+  pkg: string,
+  version: string,
+  fetchOpts: { cacheDir: string; ttlMs: number },
+): Promise<string | null> {
+  try {
+    const { body } = await cachedJsonFetch(
+      `${NPM_REGISTRY_URL}/${pkg}`,
+      fetchOpts,
+    );
+    const time = (body as { time?: Record<string, string> }).time;
+    if (!time) return null;
+    return time[version] ?? time.modified ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function osvVulns(
   pkg: string,
   version: string,
@@ -236,33 +259,45 @@ async function enrichNpmCandidate(
   fetchOpts: { cacheDir: string; ttlMs: number },
 ): Promise<PkgFacts> {
   const name = result.package.name;
-  const version = result.package.version;
 
-  const [downloads, manifest, vulns] = await Promise.all([
+  // npms.io's index lags by months-to-years for many packages, so the version,
+  // last-publish date, and license it returns can describe an obsolete release.
+  // Treat the npms hit as a candidate generator only; evaluate gates against
+  // the *current* latest manifest from the npm registry.
+  const latestManifest = await npmLatestManifest(name, undefined, fetchOpts);
+  const version = latestManifest?.version ?? result.package.version;
+
+  const [downloads, vulns, lastPublish] = await Promise.all([
     npmDownloads(name, fetchOpts),
-    npmLatestManifest(name, version, fetchOpts),
     osvVulns(name, version, fetchOpts),
+    npmPublishDate(name, version, fetchOpts),
   ]);
 
-  const types: TypesAvailability = manifest ? detectTypes(manifest) : "none";
-  const deprecated = !!manifest?.deprecated;
+  const types: TypesAvailability = latestManifest
+    ? detectTypes(latestManifest)
+    : "none";
+  const deprecated = !!latestManifest?.deprecated;
 
   return {
     package: name,
     version,
     registry: "npm",
     description: result.package.description ?? null,
-    license: extractLicense(result.package.license, manifest),
+    license: extractLicense(undefined, latestManifest) ??
+      result.package.license ?? null,
     weeklyDownloads: downloads,
-    lastPublish: result.package.date ?? null,
+    lastPublish: lastPublish ?? result.package.date ?? null,
     qualityScore: result.score?.detail?.quality ?? null,
     popularityScore: result.score?.detail?.popularity ?? null,
     maintenanceScore: result.score?.detail?.maintenance ?? null,
     deprecated,
-    maintainerCount: maintainerCount(result.package.maintainers),
+    maintainerCount: latestManifest
+      ? maintainerCount(latestManifest.maintainers)
+      : maintainerCount(result.package.maintainers),
     types,
     vulns,
-    repository: extractRepo(manifest) ?? result.package.links?.repository ??
+    repository: extractRepo(latestManifest) ??
+      result.package.links?.repository ??
       null,
   };
 }
@@ -520,9 +555,10 @@ export const model = {
         }
         const version = manifest.version ?? args.version ?? "latest";
 
-        const [downloads, vulns] = await Promise.all([
+        const [downloads, vulns, lastPublish] = await Promise.all([
           npmDownloads(args.package, fetchOpts),
           osvVulns(args.package, version, fetchOpts),
+          npmPublishDate(args.package, version, fetchOpts),
         ]);
 
         const facts: PkgFacts = {
@@ -532,7 +568,7 @@ export const model = {
           description: null,
           license: extractLicense(undefined, manifest),
           weeklyDownloads: downloads,
-          lastPublish: null,
+          lastPublish,
           qualityScore: null,
           popularityScore: null,
           maintenanceScore: null,
