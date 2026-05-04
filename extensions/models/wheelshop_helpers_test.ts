@@ -478,7 +478,7 @@ Deno.test("cachedJsonFetch propagates non-ok responses as errors", async () => {
 Deno.test("cachedJsonFetch separates GET vs POST cache keys", async () => {
   const tmp = await Deno.makeTempDir({ prefix: "wheelshop-cache-" });
   let calls = 0;
-  const fakeFetch: typeof fetch = (_url, init) => {
+  const fakeFetch = (_url: string | URL, init?: RequestInit) => {
     calls++;
     return Promise.resolve(
       new Response(JSON.stringify({ method: init?.method ?? "GET" }), {
@@ -744,7 +744,7 @@ Deno.test("fnv1a32 produces different hashes for different inputs", () => {
 Deno.test("cachedJsonFetch uses distinct keys for same URL with different bodies", async () => {
   const tmp = await Deno.makeTempDir({ prefix: "wheelshop-cache-" });
   let responseCount = 0;
-  const fakeFetch: typeof fetch = (_url, init) => {
+  const fakeFetch = (_url: string | URL, init?: RequestInit) => {
     responseCount++;
     return Promise.resolve(
       new Response(JSON.stringify({ body: init?.body ?? "none" }), {

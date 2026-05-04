@@ -10,5 +10,8 @@
   },
   "test": {
     "include": ["**/*_test.ts"]
+  },
+  "tasks": {
+    "test": "deno test --allow-env --allow-read --allow-write"
   }
 }

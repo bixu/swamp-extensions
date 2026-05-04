@@ -103,7 +103,8 @@ export const model = {
     get: {
       description: "List all resources of a given type",
       arguments: ResourceArg,
-      execute: async (args, context) => {
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const isV1 = args.resource in V1_RESOURCE_REGISTRY;
 
         if (isV1) {
@@ -191,11 +192,12 @@ export const model = {
         let nextUrl: string | null = null;
 
         do {
-          const url = nextUrl ?? collectionUrl;
-          const resp = await fetch(url, { headers });
+          const url: string = nextUrl ?? collectionUrl;
+          const resp: Response = await fetch(url, { headers });
           await assertOk(resp);
 
-          const json = await resp.json();
+          // deno-lint-ignore no-explicit-any
+          const json: any = await resp.json();
 
           for (const item of json.data) {
             allItems.push(item);
@@ -208,7 +210,8 @@ export const model = {
             handles.push(handle);
           }
 
-          const next = json.links?.next;
+          // deno-lint-ignore no-explicit-any
+          const next: any = json.links?.next;
           nextUrl = next ? `${base}${next}` : null;
         } while (nextUrl);
 
@@ -228,7 +231,8 @@ export const model = {
           "JSON object with resource attributes (overrides name for v1 resources)",
         ),
       }),
-      execute: async (args, context) => {
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const isV1 = args.resource in V1_RESOURCE_REGISTRY;
 
         if (isV1) {
@@ -319,7 +323,8 @@ export const model = {
           "JSON object with attributes to update",
         ),
       }),
-      execute: async (args, context) => {
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const isV1 = args.resource in V1_RESOURCE_REGISTRY;
 
         if (isV1) {
@@ -440,7 +445,8 @@ export const model = {
       arguments: ResourceArg.extend({
         name: z.string().describe("Name or slug of the resource to delete"),
       }),
-      execute: async (args, context) => {
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const isV1 = args.resource in V1_RESOURCE_REGISTRY;
 
         if (isV1) {

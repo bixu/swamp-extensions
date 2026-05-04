@@ -180,7 +180,7 @@ export interface CachedFetchOptions {
   ttlMs: number;
   init?: RequestInit;
   /** Override fetch (for testing). */
-  fetcher?: typeof fetch;
+  fetcher?: (url: string | URL, init?: RequestInit) => Promise<Response>;
 }
 
 /**
