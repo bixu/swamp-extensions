@@ -1,0 +1,25 @@
+manifestVersion: 1
+name: "@bixu/zfs"
+version: "2026.04.23.1"
+description: "ZFS pool management for swamp — import/export pools, sync health status, snapshot datasets, prune retention, scrub, and TRIM"
+
+repository: https://github.com/bixu/swamp-extensions
+
+additionalFiles:
+  - README.md
+  - LICENSE.txt
+
+models:
+  - zfs.ts
+
+platforms:
+  - darwin-aarch64
+  - darwin-x86_64
+  - linux-x86_64
+  - linux-aarch64
+
+labels:
+  - zfs
+  - storage
+  - macos
+  - linux
