@@ -24,9 +24,12 @@ import {
   DEFAULT_THRESHOLDS,
   detectTypes,
   evaluateGates,
+  intentMatches,
   maintainerCount,
   normaliseVulns,
   type PkgFacts,
+  rankScore,
+  tokenizeIntent,
   type TypesAvailability,
   type Vuln,
 } from "./wheelshop_helpers.ts";
@@ -34,7 +37,7 @@ import {
 const HOME = Deno.env.get("HOME") ?? "/tmp";
 const CACHE_DIR = `${HOME}/.cache/swamp-wheelshop`;
 
-const NPMS_SEARCH_URL = "https://api.npms.io/v2/search";
+const NPM_SEARCH_URL = "https://registry.npmjs.org/-/v1/search";
 const NPM_REGISTRY_URL = "https://registry.npmjs.org";
 const NPM_DOWNLOADS_URL = "https://api.npmjs.org/downloads/point/last-week";
 const OSV_QUERY_URL = "https://api.osv.dev/v1/query";
@@ -112,7 +115,7 @@ const AuditReportSchema = z.object({
   facts: z.any(),
 });
 
-interface NpmsResult {
+interface RegistrySearchHit {
   package: {
     name: string;
     version: string;
@@ -128,15 +131,63 @@ interface NpmsResult {
   };
 }
 
-async function npmsSearch(
+/**
+ * Search the npm registry's official search endpoint with popularity-heavy
+ * weighting so widely-installed packages rank above niche literal-match
+ * results. Score detail (quality/popularity/maintenance) flows through to
+ * downstream gating.
+ */
+async function npmRegistrySearch(
   query: string,
   size: number,
   fetchOpts: { cacheDir: string; ttlMs: number },
-): Promise<NpmsResult[]> {
-  const url = `${NPMS_SEARCH_URL}?q=${encodeURIComponent(query)}&size=${size}`;
+): Promise<RegistrySearchHit[]> {
+  const params = new URLSearchParams({
+    text: query,
+    size: String(size),
+    popularity: "1.0",
+    quality: "0.5",
+    maintenance: "0.5",
+  });
+  const url = `${NPM_SEARCH_URL}?${params.toString()}`;
   const { body } = await cachedJsonFetch(url, fetchOpts);
   const obj = body as Record<string, unknown>;
-  return (obj.results as NpmsResult[]) ?? [];
+  const objects = obj.objects;
+  return Array.isArray(objects) ? objects as RegistrySearchHit[] : [];
+}
+
+/**
+ * Run the full intent query plus each individual term as its own query, then
+ * merge the unique packages. npm's search is a literal multi-word matcher, so
+ * "mqtt client" excludes the canonical package literally named `mqtt`. Probing
+ * each term separately surfaces those single-word-named packages.
+ */
+async function npmRegistrySearchMulti(
+  intent: string,
+  sizePerQuery: number,
+  fetchOpts: { cacheDir: string; ttlMs: number },
+): Promise<RegistrySearchHit[]> {
+  const queries = new Set<string>([intent.trim()]);
+  for (const term of tokenizeIntent(intent)) {
+    queries.add(term);
+  }
+
+  const all = await Promise.all(
+    Array.from(queries).map((q) =>
+      npmRegistrySearch(q, sizePerQuery, fetchOpts).catch(() =>
+        [] as RegistrySearchHit[]
+      )
+    ),
+  );
+
+  const byName = new Map<string, RegistrySearchHit>();
+  for (const hits of all) {
+    for (const hit of hits) {
+      const name = hit.package.name;
+      if (!byName.has(name)) byName.set(name, hit);
+    }
+  }
+  return Array.from(byName.values());
 }
 
 async function npmDownloads(
@@ -242,10 +293,10 @@ function extractRepo(manifest: NpmManifest | null): string | null {
 }
 
 function extractLicense(
-  npmsLicense: string | undefined,
+  hintLicense: string | undefined,
   manifest: NpmManifest | null,
 ): string | null {
-  if (npmsLicense) return npmsLicense;
+  if (hintLicense) return hintLicense;
   if (!manifest) return null;
   if (typeof manifest.license === "string") return manifest.license;
   if (manifest.license && typeof manifest.license === "object") {
@@ -255,15 +306,14 @@ function extractLicense(
 }
 
 async function enrichNpmCandidate(
-  result: NpmsResult,
+  result: RegistrySearchHit,
   fetchOpts: { cacheDir: string; ttlMs: number },
 ): Promise<PkgFacts> {
   const name = result.package.name;
 
-  // npms.io's index lags by months-to-years for many packages, so the version,
-  // last-publish date, and license it returns can describe an obsolete release.
-  // Treat the npms hit as a candidate generator only; evaluate gates against
-  // the *current* latest manifest from the npm registry.
+  // The search hit's `version` reflects whatever the search index had at scrape
+  // time. Treat it as a candidate generator only; evaluate gates against the
+  // *current* latest manifest from the npm registry.
   const latestManifest = await npmLatestManifest(name, undefined, fetchOpts);
   const version = latestManifest?.version ?? result.package.version;
 
@@ -359,15 +409,9 @@ function rankCandidates(
   candidates: RankedCandidate[],
   runtime: "deno" | "node" | "both",
 ): RankedCandidate[] {
-  return candidates.slice().sort((a, b) => {
-    // jsr boost when targeting deno
-    const aBoost = runtime !== "node" && a.facts.registry === "jsr" ? 0.05 : 0;
-    const bBoost = runtime !== "node" && b.facts.registry === "jsr" ? 0.05 : 0;
-
-    const aScore = (a.facts.qualityScore ?? 0) + aBoost;
-    const bScore = (b.facts.qualityScore ?? 0) + bBoost;
-    return bScore - aScore;
-  });
+  return candidates.slice().sort(
+    (a, b) => rankScore(b.facts, runtime) - rankScore(a.facts, runtime),
+  );
 }
 
 function recommendationFromCandidate(
@@ -434,17 +478,46 @@ export const model = {
           { query, runtime: args.runtime, limit: args.limit },
         );
 
-        // Overfetch from npms — many will be filtered.
+        // Overfetch from npm — many will be filtered.
         const overfetch = Math.max(args.limit * 2, 8);
-        const npmResults = await npmsSearch(query, overfetch, fetchOpts);
+        const npmResultsRaw = await npmRegistrySearchMulti(
+          query,
+          overfetch,
+          fetchOpts,
+        );
 
-        const jsrResults = args.runtime !== "node"
+        // npm's multi-term search is a literal AND-matcher; running each term
+        // separately surfaces canonical packages but also pulls in mass-popular
+        // packages whose names happen to share a single generic term (every
+        // `*-client` package surfaces from the "client" sub-query). Require
+        // every intent term to appear in the package name or description.
+        const npmResults = npmResultsRaw.filter((hit) =>
+          intentMatches(args.intent, {
+            name: hit.package.name,
+            description: hit.package.description,
+          })
+        );
+
+        // JSR's index is small enough that single-term matches often return
+        // packages with nothing to do with the intent. Same filter applies.
+        const jsrResultsRaw = args.runtime !== "node"
           ? await jsrSearch(query, Math.min(overfetch, 10), fetchOpts)
           : [];
+        const jsrResults = jsrResultsRaw.filter((hit) =>
+          intentMatches(args.intent, {
+            name: `${hit.scope}/${hit.name}`,
+            description: hit.description,
+          })
+        );
 
+        // Enrich every unique npm candidate the multi-query produced. With
+        // overfetch=10 per query and 2-3 queries after stopword removal, the
+        // unique pool is typically 15-30 packages — every fetch is cached for
+        // 24h so re-runs are cheap, and trimming here would discard the
+        // canonical-name matches that single-term queries surface.
         const enriched: RankedCandidate[] = [];
 
-        for (const r of npmResults.slice(0, overfetch)) {
+        for (const r of npmResults) {
           try {
             const facts = await enrichNpmCandidate(r, fetchOpts);
             const { blockers } = evaluateGates(facts, DEFAULT_THRESHOLDS);

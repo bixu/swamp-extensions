@@ -87,7 +87,7 @@ Each gate is a `blocker` unless `unsafe=true`:
 | Weekly downloads      | < 1,000                                                          |
 | License               | not in MIT, Apache-2.0, BSD-2/3-Clause, ISC, 0BSD, MPL-2.0, etc. |
 | Last publish          | > 24 months ago                                                  |
-| Maintenance score     | < 0.4 (npms.io)                                                  |
+| Maintenance score     | < 0.4 (npm search composite)                                     |
 | Deprecated flag       | `true`                                                           |
 | OSV vulnerabilities   | any HIGH/CRITICAL/UNKNOWN-severity advisory                      |
 | Maintainer count      | 0 (orphaned)                                                     |
@@ -106,9 +106,10 @@ propagate.
 
 ## Data Sources
 
-- [npms.io](https://npms.io/) — search + composite quality scores
+- [registry.npmjs.org/-/v1/search](https://github.com/npm/registry/blob/main/docs/REGISTRY-API.md#get-v1search)
+  — package search with popularity-weighted ranking + composite quality scores
 - [registry.npmjs.org](https://registry.npmjs.org/) — manifest, deprecated
-  flag, types, license
+  flag, types, license, publish dates
 - [api.npmjs.org](https://api.npmjs.org/) — weekly download counts
 - [api.osv.dev](https://api.osv.dev/) — vulnerability advisories
 - [jsr.io](https://jsr.io/) — JSR package search (best-effort)

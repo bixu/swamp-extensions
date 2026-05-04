@@ -270,7 +270,7 @@ function formatDownloads(n: number): string {
 }
 
 /**
- * Extract maintainer count from a npms.io package response.
+ * Extract maintainer count from a registry/search package response.
  * `maintainers` may be missing on legacy packages.
  */
 export function maintainerCount(
@@ -326,6 +326,169 @@ function extractSeverity(vuln: Record<string, unknown>): string {
     if (score !== null) return cvssToSeverity(score);
   }
   return "UNKNOWN";
+}
+
+/**
+ * Stopwords stripped from intent before tokenising for search decomposition.
+ * Kept tight on purpose: words like "client", "server", "parser" carry signal
+ * even when they look generic, so we don't drop them.
+ */
+const INTENT_STOPWORDS: ReadonlySet<string> = new Set([
+  "a",
+  "an",
+  "and",
+  "any",
+  "are",
+  "as",
+  "at",
+  "be",
+  "by",
+  "for",
+  "from",
+  "in",
+  "is",
+  "it",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "with",
+]);
+
+/**
+ * Generic suffix words that are useful as query terms (so we still find
+ * `*-client` matches) but make poor *filter* terms — canonical packages don't
+ * always echo them in name+description (e.g. the `mqtt` package is the
+ * canonical MQTT client but its description is "A library for the MQTT
+ * protocol"). Stripped from the haystack-match check only.
+ */
+const INTENT_GENERIC_TERMS: ReadonlySet<string> = new Set([
+  "adapter",
+  "api",
+  "app",
+  "application",
+  "browser",
+  "client",
+  "deno",
+  "driver",
+  "framework",
+  "helper",
+  "js",
+  "kit",
+  "lib",
+  "library",
+  "manager",
+  "module",
+  "node",
+  "package",
+  "parser",
+  "plugin",
+  "provider",
+  "sdk",
+  "server",
+  "service",
+  "system",
+  "tool",
+  "tools",
+  "ts",
+  "typescript",
+  "javascript",
+  "util",
+  "utilities",
+  "utility",
+  "web",
+]);
+
+/**
+ * Split a free-form intent string into lowercase content words. Useful both
+ * for query decomposition (running each term as its own search) and for
+ * post-filtering loose matches (JSR's tiny index returns lots of generic
+ * `*-client` packages for queries like "mqtt client").
+ */
+export function tokenizeIntent(intent: string): string[] {
+  const seen = new Set<string>();
+  const terms: string[] = [];
+  for (const raw of intent.toLowerCase().split(/[^a-z0-9]+/)) {
+    if (raw.length < 2) continue;
+    if (INTENT_STOPWORDS.has(raw)) continue;
+    if (seen.has(raw)) continue;
+    seen.add(raw);
+    terms.push(raw);
+  }
+  return terms;
+}
+
+/**
+ * Stem to a 4-character prefix so "retry" matches "retrying", "parse" matches
+ * "parser", etc. Short terms (<=4 chars like "mqtt") stay exact. English-only
+ * heuristic — good enough for package metadata.
+ */
+function stem(term: string): string {
+  return term.length > 4 ? term.slice(0, 4) : term;
+}
+
+/**
+ * Specific (non-generic) terms used for the haystack-match filter. Generic
+ * suffix words like "client", "library", etc. are stripped because canonical
+ * packages don't always echo them in their metadata. Falls back to the full
+ * tokenisation if every term was generic (e.g. intent="client").
+ */
+function intentMatchTerms(intent: string): string[] {
+  const all = tokenizeIntent(intent);
+  const specific = all.filter((t) => !INTENT_GENERIC_TERMS.has(t));
+  return specific.length > 0 ? specific : all;
+}
+
+/**
+ * Predicate: does the candidate match enough "specific" terms from `intent`?
+ *
+ * For 1-2 specific terms, all must match. For 3+ specific terms, a 2/3
+ * majority is enough — package descriptions don't always echo every word in
+ * a longer query (e.g. `cron-parser` says "parsing crontab instructions",
+ * not "parse cron expressions"). Match is a case-insensitive substring after
+ * stemming each term to its first 4 chars; generic suffixes ("client",
+ * "library", etc.) are dropped before matching so canonical packages still
+ * pass when they don't repeat the suffix.
+ */
+export function intentMatches(
+  intent: string,
+  haystack: { name: string; description?: string | null },
+): boolean {
+  const terms = intentMatchTerms(intent);
+  if (terms.length === 0) return true;
+  const blob = `${haystack.name} ${haystack.description ?? ""}`.toLowerCase();
+  const required = terms.length <= 2 ? terms.length : Math.ceil(
+    (terms.length * 2) / 3,
+  );
+  let hits = 0;
+  for (const t of terms) {
+    if (blob.includes(stem(t))) hits++;
+    if (hits >= required) return true;
+  }
+  return hits >= required;
+}
+
+/**
+ * Convert a candidate's facts into a comparable rank score.
+ *
+ * npm's `/-/v1/search` reports `popularity:1, quality:1, maintenance:1` for
+ * almost every result, so its score detail is useless as a discriminator;
+ * weekly downloads is the only signal we have left. JSR doesn't publish
+ * download counts, so we floor JSR candidates at a level that's competitive
+ * with mid-tier npm packages (~10k-30k weekly downloads on the log scale).
+ */
+export function rankScore(
+  facts: PkgFacts,
+  runtime: "deno" | "node" | "both",
+): number {
+  if (facts.registry === "jsr") {
+    const baseFromQuality = 3 + (facts.qualityScore ?? 0);
+    const denoBoost = runtime !== "node" ? 0.5 : 0;
+    return baseFromQuality + denoBoost;
+  }
+  const dl = facts.weeklyDownloads ?? 0;
+  return Math.log10(dl + 1);
 }
 
 /**

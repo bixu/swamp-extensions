@@ -11,6 +11,7 @@ import {
   DEFAULT_THRESHOLDS,
   detectTypes,
   evaluateGates,
+  intentMatches,
   licenseAllowed,
   maintainerCount,
   monthsSince,
@@ -18,7 +19,9 @@ import {
   parseCvssScore,
   parseSpdxLicense,
   type PkgFacts,
+  rankScore,
   sha256Hex,
+  tokenizeIntent,
 } from "./wheelshop_helpers.ts";
 
 // --- parseSpdxLicense ---
@@ -498,4 +501,225 @@ Deno.test("cachedJsonFetch separates GET vs POST cache keys", async () => {
   assertEquals(calls, 2);
 
   await Deno.remove(tmp, { recursive: true });
+});
+
+// --- tokenizeIntent ---
+
+Deno.test("tokenizeIntent splits on whitespace and punctuation", () => {
+  assertEquals(tokenizeIntent("mqtt client"), ["mqtt", "client"]);
+  assertEquals(tokenizeIntent("parse cron expressions"), [
+    "parse",
+    "cron",
+    "expressions",
+  ]);
+});
+
+Deno.test("tokenizeIntent drops stopwords", () => {
+  assertEquals(tokenizeIntent("retry with exponential backoff"), [
+    "retry",
+    "exponential",
+    "backoff",
+  ]);
+  assertEquals(tokenizeIntent("a parser for the cron format"), [
+    "parser",
+    "cron",
+    "format",
+  ]);
+});
+
+Deno.test("tokenizeIntent dedupes terms", () => {
+  assertEquals(tokenizeIntent("http http client"), ["http", "client"]);
+});
+
+Deno.test("tokenizeIntent lowercases", () => {
+  assertEquals(tokenizeIntent("MQTT Client"), ["mqtt", "client"]);
+});
+
+Deno.test("tokenizeIntent handles empty/whitespace", () => {
+  assertEquals(tokenizeIntent(""), []);
+  assertEquals(tokenizeIntent("   "), []);
+});
+
+Deno.test("tokenizeIntent drops single-character noise", () => {
+  assertEquals(tokenizeIntent("X mqtt"), ["mqtt"]);
+});
+
+// --- intentMatches ---
+
+Deno.test("intentMatches accepts package whose name+desc cover all terms", () => {
+  assertEquals(
+    intentMatches("mqtt client", {
+      name: "mqtt",
+      description: "MQTT.js — a client for the MQTT protocol",
+    }),
+    true,
+  );
+});
+
+Deno.test("intentMatches rejects package missing a term", () => {
+  assertEquals(
+    intentMatches("mqtt client", {
+      name: "diskuto/client",
+      description: "An API client for the Diskuto P2P social network",
+    }),
+    false,
+  );
+});
+
+Deno.test("intentMatches matches against name when description is empty", () => {
+  assertEquals(
+    intentMatches("kubernetes client", {
+      name: "kubernetes-client-node",
+      description: null,
+    }),
+    true,
+  );
+});
+
+Deno.test("intentMatches accepts everything when intent has no content terms", () => {
+  assertEquals(
+    intentMatches("the and of", { name: "any", description: "" }),
+    true,
+  );
+});
+
+Deno.test("intentMatches stems terms longer than 4 chars", () => {
+  // "retry" stems to "retr", which appears in "retrying"
+  assertEquals(
+    intentMatches("retry with exponential backoff", {
+      name: "exponential-backoff",
+      description:
+        "A utility that allows retrying a function with an exponential delay between attempts.",
+    }),
+    true,
+  );
+});
+
+Deno.test("intentMatches keeps short terms exact", () => {
+  // "mqtt" (4 chars) is exact — `socket.io-client` doesn't contain it
+  assertEquals(
+    intentMatches("mqtt client", {
+      name: "socket.io-client",
+      description: "Realtime application framework client",
+    }),
+    false,
+  );
+});
+
+Deno.test("intentMatches drops generic suffix words from filter", () => {
+  // The canonical `mqtt` package's description doesn't mention "client" —
+  // the user added "client" as a generic suffix, so we shouldn't require it.
+  assertEquals(
+    intentMatches("mqtt client", {
+      name: "mqtt",
+      description: "A library for the MQTT protocol",
+    }),
+    true,
+  );
+});
+
+Deno.test("intentMatches accepts 2/3 majority for 3+ term intents", () => {
+  // "parse cron expressions" — `cron-parser` says "parsing crontab" without
+  // the word "expressions", so requiring all 3 terms would reject it.
+  assertEquals(
+    intentMatches("parse cron expressions", {
+      name: "cron-parser",
+      description: "Node.js library for parsing crontab instructions",
+    }),
+    true,
+  );
+});
+
+Deno.test("intentMatches still rejects packages matching only 1 of 3 terms", () => {
+  assertEquals(
+    intentMatches("parse cron expressions", {
+      name: "json-parser",
+      description: "JSON parser",
+    }),
+    false,
+  );
+});
+
+Deno.test("intentMatches requires all terms for 2-term intents", () => {
+  // "rate limit" (2 specific) — both must match
+  assertEquals(
+    intentMatches("rate limit", {
+      name: "speed-limit",
+      description: "limits things",
+    }),
+    false,
+  );
+  assertEquals(
+    intentMatches("rate limit", {
+      name: "rate-limiter",
+      description: "rate limiting",
+    }),
+    true,
+  );
+});
+
+Deno.test("intentMatches falls back to all terms when every term is generic", () => {
+  // intent="client" has only generic terms — fall back so we still filter
+  // packages that don't even mention "client".
+  assertEquals(
+    intentMatches("client", { name: "axios", description: "HTTP library" }),
+    false,
+  );
+  assertEquals(
+    intentMatches("client", {
+      name: "got",
+      description: "A friendly HTTP client",
+    }),
+    true,
+  );
+});
+
+// --- rankScore ---
+
+Deno.test("rankScore uses log10 of weekly downloads for npm", () => {
+  const facts: PkgFacts = baseFacts({
+    registry: "npm",
+    weeklyDownloads: 1_000_000,
+  });
+  const s = rankScore(facts, "both");
+  // log10(1,000,001) ≈ 6.0
+  assertEquals(Math.round(s * 10) / 10, 6.0);
+});
+
+Deno.test("rankScore returns 0 for npm packages with no download data", () => {
+  const facts: PkgFacts = baseFacts({
+    registry: "npm",
+    weeklyDownloads: null,
+  });
+  assertEquals(rankScore(facts, "both"), 0);
+});
+
+Deno.test("rankScore floors jsr packages at competitive mid-tier level", () => {
+  const facts: PkgFacts = baseFacts({
+    registry: "jsr",
+    qualityScore: 1,
+  });
+  // 3 + 1 + 0.5 (deno boost) = 4.5 — competitive with ~30k weekly downloads
+  assertEquals(rankScore(facts, "deno"), 4.5);
+});
+
+Deno.test("rankScore drops jsr deno boost when targeting node only", () => {
+  const facts: PkgFacts = baseFacts({
+    registry: "jsr",
+    qualityScore: 1,
+  });
+  assertEquals(rankScore(facts, "node"), 4);
+});
+
+Deno.test("rankScore prefers a 1M-download npm package over a perfect jsr package", () => {
+  const npm: PkgFacts = baseFacts({
+    registry: "npm",
+    weeklyDownloads: 1_000_000,
+  });
+  const jsr: PkgFacts = baseFacts({
+    registry: "jsr",
+    qualityScore: 1,
+  });
+  // 6.0 > 4.5
+  assertEquals(rankScore(npm, "deno") > rankScore(jsr, "deno"), true);
 });
