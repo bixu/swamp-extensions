@@ -105,7 +105,11 @@ export function evaluateGates(
 
   if (facts.deprecated) blockers.push("deprecated");
 
-  if (!licenseAllowed(facts.license)) {
+  // JSR's registry mandates SPDX licenses at publish time, so a null license
+  // from JSR reflects our own decision not to surface it (we don't fetch it),
+  // not an actual missing license. Trust JSR's enforcement in that case.
+  const jsrTrustedLicense = facts.registry === "jsr" && facts.license === null;
+  if (!jsrTrustedLicense && !licenseAllowed(facts.license)) {
     blockers.push(`license:${facts.license ?? "unknown"}`);
   }
 
@@ -189,21 +193,33 @@ export async function cachedJsonFetch(
 ): Promise<{ body: unknown; fromCache: boolean }> {
   const method = opts.init?.method ?? "GET";
   const bodyKey = typeof opts.init?.body === "string" ? opts.init.body : "";
-  const key = await sha256Hex(`${method}:${url}:${bodyKey}`);
+  // Use JSON.stringify of a tuple so that ambiguous separators in the URL or
+  // body cannot collide across different (method, url, body) combinations.
+  const key = await sha256Hex(JSON.stringify([method, url, bodyKey]));
   const path = `${opts.cacheDir}/${key}.json`;
+  const useCache = opts.ttlMs > 0;
 
-  try {
-    const raw = await Deno.readTextFile(path);
-    const parsed = JSON.parse(raw) as { fetchedAt: number; body: unknown };
-    if (Date.now() - parsed.fetchedAt < opts.ttlMs) {
-      return { body: parsed.body, fromCache: true };
+  if (useCache) {
+    try {
+      const raw = await Deno.readTextFile(path);
+      const parsed = JSON.parse(raw) as { fetchedAt: number; body: unknown };
+      if (Date.now() - parsed.fetchedAt < opts.ttlMs) {
+        return { body: parsed.body, fromCache: true };
+      }
+    } catch {
+      // miss — fall through to network
     }
-  } catch {
-    // miss — fall through to network
   }
 
   const fetchFn = opts.fetcher ?? fetch;
-  const resp = await fetchFn(url, opts.init);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  let resp: Response;
+  try {
+    resp = await fetchFn(url, { ...opts.init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
   if (!resp.ok) {
     throw new Error(
       `Fetch failed: ${method} ${url} -> ${resp.status} ${resp.statusText}`,
@@ -211,17 +227,33 @@ export async function cachedJsonFetch(
   }
   const body = await resp.json();
 
-  try {
-    await Deno.mkdir(opts.cacheDir, { recursive: true });
-    await Deno.writeTextFile(
-      path,
-      JSON.stringify({ fetchedAt: Date.now(), body }),
-    );
-  } catch {
-    // cache write failure is non-fatal
+  if (useCache) {
+    try {
+      await Deno.mkdir(opts.cacheDir, { recursive: true });
+      await Deno.writeTextFile(
+        path,
+        JSON.stringify({ fetchedAt: Date.now(), body }),
+      );
+    } catch {
+      // cache write failure is non-fatal
+    }
   }
 
   return { body, fromCache: false };
+}
+
+/**
+ * FNV-1a 32-bit hash, returned as 8-character lowercase hex. Synchronous
+ * (unlike sha256Hex) so callers in non-async contexts — like instance-name
+ * sanitisation — can use it without restructuring.
+ */
+export function fnv1a32(input: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
 }
 
 /**

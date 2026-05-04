@@ -24,6 +24,7 @@ import {
   DEFAULT_THRESHOLDS,
   detectTypes,
   evaluateGates,
+  fnv1a32,
   intentMatches,
   maintainerCount,
   normaliseVulns,
@@ -53,7 +54,7 @@ const GlobalArgsSchema = z.object({
 });
 
 const SearchArgs = z.object({
-  intent: z.string().describe(
+  intent: z.string().min(1, "intent cannot be empty").describe(
     "Plain-English description of what you need a library for (e.g. 'parse cron expressions', 'retry with backoff')",
   ),
   keywords: z.array(z.string()).default([]).describe(
@@ -70,13 +71,23 @@ const SearchArgs = z.object({
   ),
 });
 
+// npm package names: scoped (@scope/name) or unscoped (name)
+// No "..", no bare "/", no whitespace, no control characters.
+const NPM_PKG_RE = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+// npm versions: semver (starts with digit) or dist-tag (starts with letter)
+// Reject anything containing slashes, spaces, or ".."
+const NPM_VER_RE = /^[a-zA-Z0-9][a-zA-Z0-9._+\-]*$/;
+
 const AuditArgs = z.object({
-  package: z.string().describe(
-    "Package name to audit (e.g. 'cron-parser', '@aws-sdk/client-s3')",
-  ),
-  version: z.string().optional().describe(
-    "Version to audit (default: latest from the registry)",
-  ),
+  package: z.string()
+    .regex(NPM_PKG_RE, "invalid npm package name")
+    .describe(
+      "Package name to audit (e.g. 'cron-parser', '@aws-sdk/client-s3')",
+    ),
+  version: z.string()
+    .regex(NPM_VER_RE, "invalid npm version or dist-tag")
+    .optional()
+    .describe("Version to audit (default: latest from the registry)"),
   unsafe: z.boolean().default(false).describe(
     "Report blockers but mark approved=true regardless",
   ),
@@ -386,7 +397,9 @@ function jsrToFacts(hit: JsrPackageHit): PkgFacts {
     version: hit.latestVersion ?? "latest",
     registry: "jsr",
     description: hit.description ?? null,
-    license: "MIT", // jsr requires an SPDX license; default to MIT-shaped pass.
+    license: null,
+    // JSR requires an SPDX license; evaluateGates skips the license gate for
+    // JSR packages with null license via the jsrTrustedLicense path.
     weeklyDownloads: null,
     lastPublish: null,
     qualityScore: typeof hit.score === "number" ? hit.score / 100 : null,
@@ -517,16 +530,24 @@ export const model = {
         // canonical-name matches that single-term queries surface.
         const enriched: RankedCandidate[] = [];
 
-        for (const r of npmResults) {
-          try {
-            const facts = await enrichNpmCandidate(r, fetchOpts);
-            const { blockers } = evaluateGates(facts, DEFAULT_THRESHOLDS);
-            enriched.push({ facts, blockers });
-          } catch (e) {
-            context.logger.warn("Skipping {pkg}: {err}", {
-              pkg: r.package.name,
-              err: String(e),
-            });
+        const ENRICH_CONCURRENCY = 5;
+        for (let i = 0; i < npmResults.length; i += ENRICH_CONCURRENCY) {
+          const batch = npmResults.slice(i, i + ENRICH_CONCURRENCY);
+          const settled = await Promise.allSettled(
+            batch.map((r) => enrichNpmCandidate(r, fetchOpts)),
+          );
+          for (let j = 0; j < settled.length; j++) {
+            const result = settled[j];
+            if (result.status === "fulfilled") {
+              const facts = result.value;
+              const { blockers } = evaluateGates(facts, DEFAULT_THRESHOLDS);
+              enriched.push({ facts, blockers });
+            } else {
+              context.logger.warn("Skipping {pkg}: {err}", {
+                pkg: batch[j].package.name,
+                err: String(result.reason),
+              });
+            }
           }
         }
 
@@ -626,6 +647,18 @@ export const model = {
             }`,
           );
         }
+        // If the caller requested a concrete semver version, verify the
+        // registry returned exactly that version. Dist-tags like "latest" are
+        // allowed to resolve freely; semver pins must match exactly.
+        if (
+          args.version && /^\d/.test(args.version) &&
+          manifest.version !== args.version
+        ) {
+          throw new Error(
+            `Version mismatch: requested ${args.version} but registry resolved to ${manifest.version}. ` +
+              `The requested version may not exist.`,
+          );
+        }
         const version = manifest.version ?? args.version ?? "latest";
 
         const [downloads, vulns, lastPublish] = await Promise.all([
@@ -685,9 +718,11 @@ export const model = {
  * across platforms.
  */
 function sanitiseInstanceName(input: string): string {
-  return input
+  const clean = input
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 96) || "wheelshop";
+    .slice(0, 80);
+  const suffix = fnv1a32(input).slice(0, 8);
+  return `${clean || "wheelshop"}-${suffix}`;
 }

@@ -11,6 +11,7 @@ import {
   DEFAULT_THRESHOLDS,
   detectTypes,
   evaluateGates,
+  fnv1a32,
   intentMatches,
   licenseAllowed,
   maintainerCount,
@@ -722,4 +723,106 @@ Deno.test("rankScore prefers a 1M-download npm package over a perfect jsr packag
   });
   // 6.0 > 4.5
   assertEquals(rankScore(npm, "deno") > rankScore(jsr, "deno"), true);
+});
+
+// --- fnv1a32 ---
+
+Deno.test("fnv1a32 returns stable 8-char hex", () => {
+  const h = fnv1a32("mqtt client");
+  assertEquals(h.length, 8);
+  assertEquals(/^[0-9a-f]+$/.test(h), true);
+  // Stable across calls
+  assertEquals(fnv1a32("mqtt client"), h);
+});
+
+Deno.test("fnv1a32 produces different hashes for different inputs", () => {
+  assertEquals(fnv1a32("a") !== fnv1a32("b"), true);
+});
+
+// --- cachedJsonFetch cache key uniqueness ---
+
+Deno.test("cachedJsonFetch uses distinct keys for same URL with different bodies", async () => {
+  const tmp = await Deno.makeTempDir({ prefix: "wheelshop-cache-" });
+  let responseCount = 0;
+  const fakeFetch: typeof fetch = (_url, init) => {
+    responseCount++;
+    return Promise.resolve(
+      new Response(JSON.stringify({ body: init?.body ?? "none" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  };
+
+  // POST with body '{"a":1}'
+  await cachedJsonFetch("https://example.test/q", {
+    cacheDir: tmp,
+    ttlMs: 60_000,
+    init: { method: "POST", body: '{"a":1}' },
+    fetcher: fakeFetch,
+  });
+  // POST with body '{"b":2}' — different body, must not hit cache
+  const second = await cachedJsonFetch("https://example.test/q", {
+    cacheDir: tmp,
+    ttlMs: 60_000,
+    init: { method: "POST", body: '{"b":2}' },
+    fetcher: fakeFetch,
+  });
+  assertEquals(second.fromCache, false);
+  assertEquals(responseCount, 2);
+
+  await Deno.remove(tmp, { recursive: true });
+});
+
+Deno.test("cachedJsonFetch skips cache entirely when ttlMs is 0", async () => {
+  const tmp = await Deno.makeTempDir({ prefix: "wheelshop-cache-" });
+  let calls = 0;
+  const fakeFetch: typeof fetch = () => {
+    calls++;
+    return Promise.resolve(
+      new Response(JSON.stringify({ n: calls }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+  };
+
+  // First call — always fetches
+  await cachedJsonFetch("https://example.test/nocache", {
+    cacheDir: tmp,
+    ttlMs: 0,
+    fetcher: fakeFetch,
+  });
+  // Second call — ttlMs=0 means no caching, so fetches again
+  const second = await cachedJsonFetch("https://example.test/nocache", {
+    cacheDir: tmp,
+    ttlMs: 0,
+    fetcher: fakeFetch,
+  });
+  assertEquals(second.fromCache, false);
+  assertEquals(calls, 2);
+
+  await Deno.remove(tmp, { recursive: true });
+});
+
+// --- evaluateGates JSR license ---
+
+Deno.test("evaluateGates does not block jsr packages with null license", () => {
+  const now = new Date("2026-05-04T00:00:00Z");
+  const result = evaluateGates(
+    baseFacts({ registry: "jsr", license: null }),
+    DEFAULT_THRESHOLDS,
+    now,
+  );
+  assertEquals(result.blockers.some((b) => b.startsWith("license:")), false);
+});
+
+Deno.test("evaluateGates blocks npm packages with null license", () => {
+  const now = new Date("2026-05-04T00:00:00Z");
+  const result = evaluateGates(
+    baseFacts({ registry: "npm", license: null }),
+    DEFAULT_THRESHOLDS,
+    now,
+  );
+  assertEquals(result.blockers.some((b) => b.startsWith("license:")), true);
 });
