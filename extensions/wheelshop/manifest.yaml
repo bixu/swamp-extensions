@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@bixu/wheelshop"
-version: "2026.05.04.1"
+version: "2026.05.04.2"
 description: "Community-TS guardrail for swamp extension authors — search npm/jsr for proven libraries, filter by trust gates (downloads, license, recency, vulnerabilities), and stop reinventing wheels"
 repository: https://github.com/bixu/swamp-extensions
 models:
