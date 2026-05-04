@@ -33,7 +33,7 @@ import {
   tokenizeIntent,
   type TypesAvailability,
   type Vuln,
-} from "./wheelshop_helpers.ts";
+} from "../wheelshop/wheelshop_helpers.ts";
 
 const HOME = Deno.env.get("HOME") ?? "/tmp";
 const CACHE_DIR = `${HOME}/.cache/swamp-wheelshop`;
