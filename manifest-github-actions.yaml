@@ -1,0 +1,17 @@
+manifestVersion: 1
+name: "@bixu/github/actions"
+version: "2026.05.05.1"
+description: "Track GitHub Actions workflow runs for a pull request — list latest runs and watch until completion via Octokit REST SDK"
+repository: https://github.com/bixu/swamp-extensions
+models:
+  - github_actions.ts
+platforms:
+  - darwin-aarch64
+  - darwin-x86_64
+  - linux-x86_64
+  - linux-aarch64
+labels:
+  - github
+  - actions
+  - ci
+  - octokit
