@@ -1,7 +1,21 @@
 manifestVersion: 1
 name: "@bixu/github"
-version: "2026.04.23.1"
-description: "GitHub resource models (repos, issues, PRs, members) using Octokit REST SDK"
+version: "2026.05.05.1"
+description: "GitHub resource models (repos, issues, PRs, members, Actions runs) using Octokit REST SDK"
+repository: https://github.com/bixu/swamp-extensions
+models:
+  - github_repo.ts
+  - github_issue.ts
+  - github_pull.ts
+  - github_member.ts
+  - github_actions.ts
+platforms:
+  - darwin-aarch64
+  - darwin-x86_64
+  - linux-x86_64
+  - linux-aarch64
 labels:
   - github
   - octokit
+  - actions
+  - ci
