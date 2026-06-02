@@ -43,6 +43,22 @@ export interface KeychainVaultProvider {
   getName(): string;
 }
 
+type CommandResult = { code: number; stdout: string; stderr: string };
+type CommandRunner = (args: string[]) => Promise<CommandResult>;
+
+function defaultRunner(args: string[]): Promise<CommandResult> {
+  return new Deno.Command("security", {
+    args,
+    stdin: "null",
+    stdout: "piped",
+    stderr: "piped",
+  }).output().then(({ code, stdout, stderr }) => ({
+    code,
+    stdout: new TextDecoder().decode(stdout).trim(),
+    stderr: new TextDecoder().decode(stderr).trim(),
+  }));
+}
+
 /** macOS Keychain vault provider definition. */
 export const vault = {
   type: "@bixu/macos-keychain",
@@ -54,21 +70,18 @@ export const vault = {
   createProvider: (
     name: string,
     config: Record<string, unknown>,
+    /** @internal override for unit tests — omit in production */
+    _runner?: CommandRunner,
   ): KeychainVaultProvider => {
     const { service } = ConfigSchema.parse(config);
+    const run: CommandRunner = _runner ?? defaultRunner;
 
     const runSecurity = async (args: string[]): Promise<string> => {
-      const { code, stdout, stderr } = await new Deno.Command("security", {
-        args,
-        stdin: "null",
-        stdout: "piped",
-        stderr: "piped",
-      }).output();
+      const { code, stdout, stderr } = await run(args);
       if (code !== 0) {
-        const detail = new TextDecoder().decode(stderr).trim();
-        throw new Error(detail || `security exited with code ${code}`);
+        throw new Error(stderr || `security exited with code ${code}`);
       }
-      return new TextDecoder().decode(stdout).trim();
+      return stdout;
     };
 
     /**
@@ -76,26 +89,23 @@ export const vault = {
      * Returns `null` when the item is absent; throws for all other failures.
      */
     const tryFindPassword = async (key: string): Promise<string | null> => {
-      const { code, stdout, stderr } = await new Deno.Command("security", {
-        args: ["find-generic-password", "-s", service, "-a", key, "-w"],
-        stdin: "null",
-        stdout: "piped",
-        stderr: "piped",
-      }).output();
-      if (code === 0) {
-        return new TextDecoder().decode(stdout).trim();
-      }
-      const errMsg = new TextDecoder().decode(stderr).trim();
+      const { code, stdout, stderr } = await run([
+        "find-generic-password",
+        "-s",
+        service,
+        "-a",
+        key,
+        "-w",
+      ]);
+      if (code === 0) return stdout;
       // Exit code 44 and the standard "could not be found" message both
       // indicate a missing item — treat either as a clean miss.
-      if (
-        code === 44 || errMsg.includes("could not be found in the keychain")
-      ) {
+      if (code === 44 || stderr.includes("could not be found in the keychain")) {
         return null;
       }
       throw new Error(
         `Failed to read key "${key}" from service "${service}": ${
-          errMsg || `security exited with code ${code}`
+          stderr || `security exited with code ${code}`
         }`,
       );
     };
