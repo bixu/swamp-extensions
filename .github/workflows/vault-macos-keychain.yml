@@ -49,7 +49,7 @@ jobs:
       # --- unit tests (mocked security CLI, runs on any platform) ---
 
       - name: Run unit tests
-        run: deno test --allow-env --allow-read --allow-write extensions/vaults/macos-keychain/mod_test.ts
+        run: deno test --allow-env --allow-read --allow-write --allow-run extensions/vaults/macos-keychain/mod_test.ts
 
       # --- integration tests (real macOS Keychain via security CLI) ---
 
