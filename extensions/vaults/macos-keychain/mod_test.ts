@@ -22,12 +22,12 @@ function mockRunner(
   let callIndex = 0;
   return {
     calls,
-    run: async (args: string[]) => {
+    run: (args: string[]) => {
       calls.push([...args]);
       const resp = Array.isArray(responses)
         ? responses[callIndex++]
         : responses(args);
-      return { stderr: "", ...resp };
+      return Promise.resolve({ stderr: "", ...resp });
     },
   };
 }
