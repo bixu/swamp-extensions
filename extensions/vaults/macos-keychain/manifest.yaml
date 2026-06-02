@@ -1,0 +1,26 @@
+manifestVersion: 1
+name: "@bixu/macos-keychain"
+version: "2026.06.02.1"
+description: "macOS Keychain vault for swamp — stores and retrieves secrets via the security CLI with key enumeration support"
+repository: https://github.com/bixu/swamp-extensions
+
+paths:
+  base: manifest
+
+vaults:
+  - mod.ts
+
+additionalFiles:
+  - README.md
+  - LICENSE.md
+
+platforms:
+  - darwin-aarch64
+  - darwin-x86_64
+
+models: []
+workflows: []
+drivers: []
+datastores: []
+reports: []
+dependencies: []
