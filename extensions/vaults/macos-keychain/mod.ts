@@ -100,7 +100,9 @@ export const vault = {
       if (code === 0) return stdout;
       // Exit code 44 and the standard "could not be found" message both
       // indicate a missing item — treat either as a clean miss.
-      if (code === 44 || stderr.includes("could not be found in the keychain")) {
+      if (
+        code === 44 || stderr.includes("could not be found in the keychain")
+      ) {
         return null;
       }
       throw new Error(
