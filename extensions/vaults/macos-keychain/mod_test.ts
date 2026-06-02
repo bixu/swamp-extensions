@@ -11,25 +11,24 @@ const NOT_FOUND = {
 } as const;
 
 type MockResponse = { stdout: string; code: number; stderr?: string };
+type RunResult = { code: number; stdout: string; stderr: string };
 
 /** Build a mock command runner from a fixed response list or a selector fn. */
 function mockRunner(
   responses:
     | MockResponse[]
     | ((args: string[]) => MockResponse),
-): { run: (args: string[]) => Promise<MockResponse>; calls: string[][] } {
+): { run: (args: string[]) => Promise<RunResult>; calls: string[][] } {
   const calls: string[][] = [];
   let callIndex = 0;
-  return {
-    calls,
-    run: (args: string[]) => {
-      calls.push([...args]);
-      const resp = Array.isArray(responses)
-        ? responses[callIndex++]
-        : responses(args);
-      return Promise.resolve({ stderr: "", ...resp });
-    },
+  const run = (args: string[]): Promise<RunResult> => {
+    calls.push([...args]);
+    const resp = Array.isArray(responses)
+      ? responses[callIndex++]
+      : responses(args);
+    return Promise.resolve({ stderr: "", ...resp });
   };
+  return { calls, run };
 }
 
 Deno.test("vault export conforms to VaultProvider interface", () => {
