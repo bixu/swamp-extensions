@@ -1,0 +1,77 @@
+name: macOS Keychain Vault
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - extensions/vaults/macos-keychain/**
+      - .github/workflows/vault-macos-keychain.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - extensions/vaults/macos-keychain/**
+      - .github/workflows/vault-macos-keychain.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest  # darwin-aarch64 (Apple Silicon)
+          - macos-13      # darwin-x86_64  (Intel)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
+        with:
+          deno-version: v2.x
+
+      - name: Install swamp
+        run: curl -fsSL https://swamp.club/install.sh | sh
+
+      - name: Add swamp to PATH
+        run: echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      # --- static checks ---
+
+      - name: Check formatting
+        run: swamp extension fmt extensions/vaults/macos-keychain/manifest.yaml --check --json
+
+      # --- unit tests (mocked security CLI, runs on any platform) ---
+
+      - name: Run unit tests
+        run: deno test --allow-env --allow-read --allow-write extensions/vaults/macos-keychain/mod_test.ts
+
+      # --- integration tests (real macOS Keychain via security CLI) ---
+
+      - name: Store secret
+        run: swamp vault put keychain vault-ci-test "hello-from-ci"
+
+      - name: Retrieve secret
+        run: |
+          result=$(swamp vault get keychain vault-ci-test)
+          if [ "$result" != "hello-from-ci" ]; then
+            echo "Expected 'hello-from-ci', got '$result'" >&2
+            exit 1
+          fi
+
+      - name: List keys includes stored key
+        run: swamp vault list-keys keychain | grep -Fq "vault-ci-test"
+
+      - name: Overwrite secret (idempotent put)
+        run: |
+          swamp vault put keychain vault-ci-test "updated-value"
+          result=$(swamp vault get keychain vault-ci-test)
+          if [ "$result" != "updated-value" ]; then
+            echo "Expected 'updated-value', got '$result'" >&2
+            exit 1
+          fi

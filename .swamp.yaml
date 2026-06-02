@@ -1,5 +1,11 @@
-swampVersion: 20260305.011558.0
+swampVersion: 20260525.222440.0
 initializedAt: '2026-02-26T11:21:04.953Z'
 repoId: 0fc7cd2e-d01f-4901-9931-58b4cb20c233
-tool: claude
-upgradedAt: '2026-03-05T06:33:56.613Z'
+upgradedAt: '2026-05-26T08:15:29.703Z'
+tools:
+  - claude
+vaults:
+  keychain:
+    type: "@bixu/macos-keychain"
+    config:
+      service: "swamp"

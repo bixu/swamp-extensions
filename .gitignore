@@ -21,6 +21,7 @@
 /models/command/
 rebuild-index/
 workflows/
+!.github/workflows/
 .DS_Store
 *.csv
 
