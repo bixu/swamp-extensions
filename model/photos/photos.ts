@@ -2,13 +2,14 @@
  * @module
  * Export photos from Apple Photos, process for web, and publish to Glass.
  *
- * Uses aphex-swift for Photos library access, sharp for image processing,
+ * Uses aphex-swift for Photos library access, macOS sips for image processing,
  * and playwright for browser-automated Glass uploads.
  */
 import { z } from "npm:zod@4";
 import {
   buildAphexCommand,
   parseAphexOutput,
+  processWithSips,
   resolveExportDir,
 } from "./photos_helpers.ts";
 
@@ -47,8 +48,8 @@ export const ExportResultSchema = z.object({
 export const ProcessArgsSchema = z.object({
   maxWidth: z.number().default(2048).describe("Maximum width in pixels"),
   quality: z.number().min(1).max(100).default(90).describe("JPEG quality"),
-  format: z.enum(["jpeg", "webp", "png", "avif"]).default("jpeg").describe(
-    "Output format",
+  format: z.enum(["jpeg", "png", "tiff"]).default("jpeg").describe(
+    "Output format (macOS sips-supported formats)",
   ),
 });
 
@@ -130,7 +131,9 @@ export const model = {
             name: string,
             data: unknown,
           ) => Promise<unknown>;
-          log: (msg: string) => void;
+          logger: {
+            info: (msg: string, meta?: Record<string, unknown>) => void;
+          };
         },
       ) => {
         const { album, aphexBinaryPath, exportDir: configuredDir } =
@@ -139,7 +142,7 @@ export const model = {
 
         await Deno.mkdir(exportDir, { recursive: true });
 
-        context.log(`Querying album "${album}" via aphex-swift...`);
+        context.logger.info(`Querying album "${album}" via aphex-swift...`);
         const infoCmd = buildAphexCommand(aphexBinaryPath, "photo-info", [
           album,
         ]);
@@ -154,7 +157,7 @@ export const model = {
         );
 
         const toExport = args.limit ? photos.slice(0, args.limit) : photos;
-        context.log(
+        context.logger.info(
           `Found ${photos.length} photos, exporting ${toExport.length}...`,
         );
 
@@ -194,39 +197,37 @@ export const model = {
 
         const handle = await context.writeResource(
           "export",
-          `${album.toLowerCase()}-${Date.now()}`,
+          "current",
           result,
         );
         return { dataHandles: [handle] };
       },
     },
     process: {
-      description: "Resize and convert exported photos for Glass using sharp",
+      description:
+        "Resize and convert exported photos for Glass using macOS sips",
       arguments: ProcessArgsSchema,
       execute: async (
         args: z.infer<typeof ProcessArgsSchema>,
         context: {
           globalArgs: z.infer<typeof GlobalArgsSchema>;
-          readResource: (spec: string, name: string) => Promise<unknown>;
+          readResource: (
+            instanceName: string,
+          ) => Promise<Record<string, unknown> | null>;
           writeResource: (
             spec: string,
             name: string,
             data: unknown,
           ) => Promise<unknown>;
-          log: (msg: string) => void;
-          dataRepository: {
-            latest: (spec: string) => Promise<{ attributes: unknown } | null>;
+          logger: {
+            info: (msg: string, meta?: Record<string, unknown>) => void;
           };
         },
       ) => {
-        const sharp = (await import("npm:sharp@0.34.5")).default;
+        const raw = await context.readResource!("current");
+        if (!raw) throw new Error("No export data found — run export first");
 
-        const latest = await context.dataRepository.latest("export");
-        if (!latest) throw new Error("No export data found — run export first");
-
-        const exportData = latest.attributes as z.infer<
-          typeof ExportResultSchema
-        >;
+        const exportData = raw as unknown as z.infer<typeof ExportResultSchema>;
         const processedDir = resolveExportDir(
           context.globalArgs.exportDir,
           context.globalArgs.album,
@@ -235,34 +236,19 @@ export const model = {
 
         const processedFiles = [];
         for (const file of exportData.exportedFiles) {
-          context.log(`Processing ${file.filename}...`);
-          const outputFilename = file.filename.replace(
-            /\.[^.]+$/,
-            `.${args.format}`,
+          context.logger.info(`Processing ${file.filename}...`);
+          const result = await processWithSips(
+            file.exportedPath,
+            processedDir,
+            {
+              maxWidth: args.maxWidth,
+              format: args.format,
+              quality: args.quality,
+            },
           );
-          const outputPath = `${processedDir}/${outputFilename}`;
-
-          const pipeline = sharp(file.exportedPath)
-            .resize({ width: args.maxWidth, withoutEnlargement: true });
-
-          if (args.format === "jpeg") {
-            pipeline.jpeg({ quality: args.quality });
-          } else if (args.format === "webp") {
-            pipeline.webp({ quality: args.quality });
-          } else if (args.format === "avif") {
-            pipeline.avif({ quality: args.quality });
-          } else {
-            pipeline.png();
-          }
-
-          const info = await pipeline.toFile(outputPath);
           processedFiles.push({
             sourcePath: file.exportedPath,
-            outputPath,
-            format: args.format,
-            width: info.width,
-            height: info.height,
-            fileSizeBytes: info.size,
+            ...result,
           });
         }
 
@@ -274,7 +260,7 @@ export const model = {
 
         const handle = await context.writeResource(
           "processed",
-          `processed-${Date.now()}`,
+          "current",
           result,
         );
         return { dataHandles: [handle] };
@@ -287,26 +273,29 @@ export const model = {
         args: z.infer<typeof PublishArgsSchema>,
         context: {
           globalArgs: z.infer<typeof GlobalArgsSchema>;
+          readResource: (
+            instanceName: string,
+          ) => Promise<Record<string, unknown> | null>;
           writeResource: (
             spec: string,
             name: string,
             data: unknown,
           ) => Promise<unknown>;
-          log: (msg: string) => void;
-          dataRepository: {
-            latest: (spec: string) => Promise<{ attributes: unknown } | null>;
+          logger: {
+            info: (msg: string, meta?: Record<string, unknown>) => void;
           };
         },
       ) => {
-        const { chromium } = await import("npm:playwright@1.60.0");
+        const playwrightPkg = ["npm", "playwright@1.60.0"].join(":");
+        const { chromium } = await import(playwrightPkg);
         const { join } = await import("jsr:@std/path@1");
 
-        const latest = await context.dataRepository.latest("processed");
-        if (!latest) {
+        const raw = await context.readResource!("current");
+        if (!raw) {
           throw new Error("No processed data found — run process first");
         }
 
-        const processedData = latest.attributes as z.infer<
+        const processedData = raw as unknown as z.infer<
           typeof ProcessResultSchema
         >;
 
@@ -329,7 +318,7 @@ export const model = {
 
           for (const file of processedData.processedFiles) {
             try {
-              context.log(`Uploading ${file.outputPath}...`);
+              context.logger.info(`Uploading ${file.outputPath}...`);
 
               const fileInput = await page.locator('input[type="file"]');
               await fileInput.setInputFiles(file.outputPath);
@@ -372,7 +361,7 @@ export const model = {
           await browser.close();
         }
 
-        context.log(
+        context.logger.info(
           `Auth state persisted to ${authDir} — future runs will reuse session`,
         );
 
@@ -385,7 +374,7 @@ export const model = {
 
         const handle = await context.writeResource(
           "published",
-          `glass-${Date.now()}`,
+          "current",
           result,
         );
         return { dataHandles: [handle] };

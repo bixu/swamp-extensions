@@ -111,9 +111,11 @@ describe("photos schemas", () => {
       assertEquals(result.success, true);
     });
 
-    it("rejects invalid format", () => {
+    it("rejects unsupported format", () => {
       const result = ProcessArgsSchema.safeParse({ format: "bmp" });
       assertEquals(result.success, false);
+      const webp = ProcessArgsSchema.safeParse({ format: "webp" });
+      assertEquals(webp.success, false);
     });
   });
 
@@ -268,6 +270,13 @@ describe("photos helpers", () => {
       const dir = resolveExportDir(undefined, "Glass");
       assertExists(dir);
       assertEquals(dir.includes("glass"), true);
+    });
+  });
+
+  describe("processWithSips", () => {
+    it("is exported as a function", async () => {
+      const { processWithSips } = await import("./photos_helpers.ts");
+      assertEquals(typeof processWithSips, "function");
     });
   });
 });

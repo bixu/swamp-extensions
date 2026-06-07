@@ -59,8 +59,8 @@ After initial login, subsequent runs can use headless mode (the default).
 
 ## Global Arguments
 
-| Argument | Default | Description |
-|----------|---------|-------------|
-| album | (required) | Apple Photos album name |
-| aphexBinaryPath | /usr/local/bin/aphex-swift | Path to built binary |
-| exportDir | $TMPDIR/swamp-photos-{album} | Export destination |
+| Argument        | Default                      | Description             |
+| --------------- | ---------------------------- | ----------------------- |
+| album           | (required)                   | Apple Photos album name |
+| aphexBinaryPath | /usr/local/bin/aphex-swift   | Path to built binary    |
+| exportDir       | $TMPDIR/swamp-photos-{album} | Export destination      |
