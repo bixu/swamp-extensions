@@ -1,4 +1,5 @@
 {
+  "compilerOptions": { "noImplicitAny": false, "strictNullChecks": false },
   "fmt": { "include": ["**/*.ts"] },
   "lint": {
     "include": ["**/*.ts"],

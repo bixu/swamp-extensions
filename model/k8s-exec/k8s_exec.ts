@@ -16,7 +16,7 @@ import * as k8s from "npm:@kubernetes/client-node@1.4.0";
 import { Buffer } from "node:buffer";
 import { PassThrough } from "node:stream";
 
-const GlobalArgsSchema = z.object({
+export const GlobalArgsSchema = z.object({
   kubeContext: z.string().describe(
     "Kubernetes context name from your kubeconfig",
   ),
@@ -28,7 +28,7 @@ const GlobalArgsSchema = z.object({
   ),
 });
 
-const ExecResultSchema = z.object({
+export const ExecResultSchema = z.object({
   podName: z.string(),
   nodeName: z.string(),
   container: z.string(),
@@ -39,7 +39,7 @@ const ExecResultSchema = z.object({
   executedAt: z.string(),
 });
 
-const SummarySchema = z.object({
+export const SummarySchema = z.object({
   method: z.string(),
   totalPods: z.number(),
   succeeded: z.number(),
@@ -120,7 +120,7 @@ function execInPod(
   });
 }
 
-async function runBatched<T, R>(
+export async function runBatched<T, R>(
   items: T[],
   concurrency: number,
   fn: (item: T) => Promise<R>,
@@ -173,7 +173,8 @@ export const model = {
         ),
         command: z.string().describe("Command to run (passed to sh -c)"),
       }),
-      execute: async (args, context) => {
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const g = context.globalArgs;
         const ns = args.namespace ?? g.namespace;
         const kc = loadKubeConfig(g.kubeContext);
@@ -251,7 +252,8 @@ export const model = {
           "Regex filter on pod name (e.g. 'ovs-ovn-(p2979|ttvxz|7tkxv|46nf6)')",
         ),
       }),
-      execute: async (args, context) => {
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const g = context.globalArgs;
         const ns = args.namespace ?? g.namespace;
         const kc = loadKubeConfig(g.kubeContext);

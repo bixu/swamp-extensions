@@ -12,11 +12,11 @@
 import { z } from "npm:zod@4";
 
 // ZFS name rules: alphanumeric, underscore, hyphen, colon, period (no slash for components)
-const SAFE_ZFS_COMPONENT_RE = /^[a-zA-Z0-9_\-:.]+$/;
+export const SAFE_ZFS_COMPONENT_RE = /^[a-zA-Z0-9_\-:.]+$/;
 // Dataset/path names allow slash
-const SAFE_ZFS_PATH_RE = /^[a-zA-Z0-9_\-:./]+$/;
+export const SAFE_ZFS_PATH_RE = /^[a-zA-Z0-9_\-:./]+$/;
 
-function validateComponent(name, label) {
+export function validateComponent(name, label) {
   if (!SAFE_ZFS_COMPONENT_RE.test(name)) {
     throw new Error(
       `Invalid ${label} ${
@@ -26,7 +26,7 @@ function validateComponent(name, label) {
   }
 }
 
-function validatePath(path, label) {
+export function validatePath(path, label) {
   if (!SAFE_ZFS_PATH_RE.test(path)) {
     throw new Error(
       `Invalid ${label} ${
@@ -36,7 +36,7 @@ function validatePath(path, label) {
   }
 }
 
-function validateSnapshot(snap, label) {
+export function validateSnapshot(snap, label) {
   const atIdx = snap.indexOf("@");
   if (atIdx < 0) {
     throw new Error(
@@ -66,7 +66,7 @@ async function run(bin, args) {
 
 let resolvedBins = null;
 
-function requirePool(pool) {
+export function requirePool(pool) {
   if (!pool) {
     throw new Error(
       "globalArguments.pool is required for this method — set it when creating the model instance",
@@ -102,7 +102,7 @@ async function resolveBins(zpoolBin, zfsBin) {
   return resolvedBins;
 }
 
-function parseZpoolList(output, pool) {
+export function parseZpoolList(output, pool) {
   for (const line of output.split("\n").filter(Boolean)) {
     const parts = line.split("\t");
     if (parts[0] === pool) {
@@ -121,7 +121,7 @@ function parseZpoolList(output, pool) {
   );
 }
 
-function parseZpoolStatus(output) {
+export function parseZpoolStatus(output) {
   const devices = [];
   let scanState = "none";
   let scanDate = "";
@@ -164,7 +164,7 @@ function parseZpoolStatus(output) {
   return { devices, scanState, scanDate };
 }
 
-function parseDatasets(output) {
+export function parseDatasets(output) {
   return output.split("\n").filter(Boolean).map((line) => {
     const parts = line.split("\t");
     return {
@@ -178,7 +178,7 @@ function parseDatasets(output) {
   });
 }
 
-function parseSnapshots(output) {
+export function parseSnapshots(output) {
   return output.split("\n").filter(Boolean).map((line) => {
     const parts = line.split("\t");
     return {
