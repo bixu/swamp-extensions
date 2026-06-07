@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@bixu/photos"
-version: "2026.06.07.3"
+version: "2026.06.07.4"
 description: "Directory-watch photo pipeline — scan for new images, process with sips, stage in Glass via Safari"
 repository: https://github.com/bixu/swamp-extensions
 paths:
