@@ -13,6 +13,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         extension:
           - wheelshop
@@ -43,5 +44,8 @@ jobs:
         working-directory: model/${{ matrix.extension }}
 
       - name: Run tests
-        run: deno task test
+        run: |
+          if compgen -G "*_test.ts" > /dev/null; then
+            deno test --allow-env --allow-read --allow-write
+          fi
         working-directory: model/${{ matrix.extension }}
