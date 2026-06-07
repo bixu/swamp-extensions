@@ -5,20 +5,23 @@ Export photos from Apple Photos, process for web, and publish to Glass.
 ## Prerequisites
 
 - macOS ARM64 (Apple Silicon)
-- `aphex-swift` binary built and installed (see below)
-- Playwright browsers installed: `npx playwright install chromium`
-- Glass account with saved browser session
+- Glass account (logged in via Safari)
+- Safari > Developer > Allow JavaScript from Apple Events (enabled)
+- System Settings > Privacy & Security > Accessibility (grant terminal app)
 
-## Building aphex-swift
+On first run, macOS will prompt for Photos library access (TCC).
 
-```bash
-git clone https://github.com/kitschpatrol/aphex.git
-cd aphex/native/aphex-swift
-swift build --configuration release -Xswiftc -DDEBUG
-cp .build/release/aphex-swift /usr/local/bin/
-```
+## Architecture
 
-On first run, macOS will prompt for Photos library access.
+This extension bundles [aphex-swift](https://github.com/kitschpatrol/aphex), a
+Swift binary by [Eric Mika (@kitschpatrol)](https://github.com/kitschpatrol)
+that uses Apple's PhotoKit framework to query and export from the macOS Photos
+library. The binary is MIT-licensed and built from source — see the
+[aphex repository](https://github.com/kitschpatrol/aphex) for full source and
+documentation.
+
+Image processing uses macOS `sips` (built-in). Glass uploads use Safari
+AppleScript automation with base64 file injection.
 
 ## Methods
 
@@ -48,19 +51,21 @@ swamp model method run photos publish --json
 
 ## Glass Authentication
 
-The publish method uses Playwright with a persistent browser context stored at
-`~/.swamp-glass-auth/`. Log in once with `headless=false`:
-
-```bash
-swamp model method run photos publish --input headless=false --json
-```
-
-After initial login, subsequent runs can use headless mode (the default).
+The publish method opens Safari and stages the photo in the Glass upload modal.
+You must be logged into Glass in Safari — the extension uses your existing
+browser session. Review the staged photo and click Post manually.
 
 ## Global Arguments
 
-| Argument        | Default                      | Description             |
-| --------------- | ---------------------------- | ----------------------- |
-| album           | (required)                   | Apple Photos album name |
-| aphexBinaryPath | /usr/local/bin/aphex-swift   | Path to built binary    |
-| exportDir       | $TMPDIR/swamp-photos-{album} | Export destination      |
+| Argument        | Default                     | Description                            |
+| --------------- | --------------------------- | -------------------------------------- |
+| album           | (required)                  | Apple Photos album name                |
+| aphexBinaryPath | (bundled binary)            | Override path to aphex-swift if needed |
+| exportDir       | $TMPDIR/swamp-photos-{slug} | Export destination                     |
+
+## Credits
+
+- **aphex-swift** by
+  [Eric Mika (@kitschpatrol)](https://github.com/kitschpatrol) — MIT license
+- **PhotoKit** access via Apple's native framework
+- **sips** — macOS built-in image processing

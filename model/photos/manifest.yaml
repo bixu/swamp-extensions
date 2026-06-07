@@ -9,6 +9,7 @@ models:
   - photos.ts
 additionalFiles:
   - photos_helpers.ts
+  - aphex-swift
   - README.md
   - LICENSE.txt
 platforms:

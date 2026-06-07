@@ -17,9 +17,9 @@ import {
 /** Global arguments: album name and optional binary/export paths. */
 export const GlobalArgsSchema = z.object({
   album: z.string().describe("Apple Photos album name to publish from"),
-  aphexBinaryPath: z.string().default(
-    "/usr/local/bin/aphex-swift",
-  ).describe("Path to the aphex-swift binary"),
+  aphexBinaryPath: z.string().optional().describe(
+    "Override path to aphex-swift binary (default: bundled binary)",
+  ),
   exportDir: z.string().optional().describe(
     "Directory for exported photos (default: temp dir)",
   ),
@@ -134,6 +134,7 @@ export const model = {
         args: z.infer<typeof ExportArgsSchema>,
         context: {
           globalArgs: z.infer<typeof GlobalArgsSchema>;
+          extensionFile: (relativePath: string) => string;
           writeResource: (
             spec: string,
             name: string,
@@ -144,8 +145,13 @@ export const model = {
           };
         },
       ) => {
-        const { album, aphexBinaryPath, exportDir: configuredDir } =
-          context.globalArgs;
+        const {
+          album,
+          aphexBinaryPath: overridePath,
+          exportDir: configuredDir,
+        } = context.globalArgs;
+        const aphexBinaryPath = overridePath ||
+          context.extensionFile("aphex-swift");
         const exportDir = resolveExportDir(configuredDir, album);
 
         await Deno.mkdir(exportDir, { recursive: true });
