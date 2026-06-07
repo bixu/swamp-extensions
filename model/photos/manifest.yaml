@@ -1,0 +1,22 @@
+manifestVersion: 1
+name: "@bixu/photos"
+version: "2026.06.07.4"
+description: "Directory-watch photo pipeline — scan for new images, process with sips, stage in Glass via Safari"
+repository: https://github.com/bixu/swamp-extensions
+paths:
+  base: manifest
+models:
+  - photos.ts
+additionalFiles:
+  - photos_helpers.ts
+  - README.md
+  - LICENSE.txt
+platforms:
+  - darwin-aarch64
+  - darwin-x86_64
+labels:
+  - photos
+  - glass
+  - image-processing
+  - publishing
+  - directory-watch

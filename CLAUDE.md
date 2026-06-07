@@ -63,11 +63,13 @@ extensions/models/     # Only upstream_extensions.json lives here (pulled extens
 ### Creating a new extension
 
 1. `mkdir model/<name>` and add source files flat in that directory
-2. Create `manifest.yaml` with `paths: { base: manifest }` and `models:` as bare filenames
-3. Create `deno.json` (copy from any existing `model/*/deno.json`)
-4. Run `swamp-wheelshop` before hand-rolling non-trivial logic
-5. Run checks from the extension dir: `deno fmt --check && deno lint && deno task test`
-6. Push: `cd model/<name> && swamp extension push manifest.yaml --json`
+2. Create `deno.json` (copy from any existing `model/*/deno.json`)
+3. Run `swamp-wheelshop` before hand-rolling non-trivial logic
+4. **Write tests first** (`*_test.ts`) — define schemas and expected behaviors before implementation
+5. Implement the model to satisfy the tests
+6. Create `manifest.yaml` with `paths: { base: manifest }` and `models:` as bare filenames
+7. Run checks from the extension dir: `deno fmt --check && deno lint && deno task test`
+8. Push: `cd model/<name> && swamp extension push manifest.yaml --json`
 
 ### Testing published extensions
 

@@ -1,0 +1,10 @@
+{
+  "fmt": { "include": ["**/*.ts"] },
+  "lint": {
+    "include": ["**/*.ts"],
+    "rules": { "exclude": ["no-import-prefix"] }
+  },
+  "tasks": {
+    "test": "deno test --allow-env --allow-read --allow-write --allow-run"
+  }
+}
