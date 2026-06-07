@@ -8,6 +8,7 @@
 import { z } from "npm:zod@4";
 import {
   buildAphexCommand,
+  buildGlassUploadScript,
   parseAphexOutput,
   processWithSips,
   resolveExportDir,
@@ -71,7 +72,6 @@ export const ProcessResultSchema = z.object({
 export const PublishArgsSchema = z.object({
   title: z.string().optional().describe("Override photo title for Glass"),
   category: z.string().optional().describe("Glass category"),
-  headless: z.boolean().default(true).describe("Run browser in headless mode"),
 });
 
 const PublishedPhotoSchema = z.object({
@@ -197,7 +197,7 @@ export const model = {
 
         const handle = await context.writeResource(
           "export",
-          "current",
+          "export-current",
           result,
         );
         return { dataHandles: [handle] };
@@ -224,7 +224,7 @@ export const model = {
           };
         },
       ) => {
-        const raw = await context.readResource!("current");
+        const raw = await context.readResource!("export-current");
         if (!raw) throw new Error("No export data found — run export first");
 
         const exportData = raw as unknown as z.infer<typeof ExportResultSchema>;
@@ -260,14 +260,15 @@ export const model = {
 
         const handle = await context.writeResource(
           "processed",
-          "current",
+          "process-current",
           result,
         );
         return { dataHandles: [handle] };
       },
     },
     publish: {
-      description: "Upload processed photos to Glass via browser automation",
+      description:
+        "Upload processed photos to Glass via Safari AppleScript automation",
       arguments: PublishArgsSchema,
       execute: async (
         args: z.infer<typeof PublishArgsSchema>,
@@ -286,11 +287,7 @@ export const model = {
           };
         },
       ) => {
-        const playwrightPkg = ["npm", "playwright@1.60.0"].join(":");
-        const { chromium } = await import(playwrightPkg);
-        const { join } = await import("jsr:@std/path@1");
-
-        const raw = await context.readResource!("current");
+        const raw = await context.readResource!("process-current");
         if (!raw) {
           throw new Error("No processed data found — run process first");
         }
@@ -299,71 +296,45 @@ export const model = {
           typeof ProcessResultSchema
         >;
 
-        const homeDir = Deno.env.get("HOME") || "/tmp";
-        const authDir = join(homeDir, ".swamp-glass-auth");
-        await Deno.mkdir(authDir, { recursive: true });
-
-        const browser = await chromium.launchPersistentContext(authDir, {
-          headless: args.headless,
-          channel: "chromium",
-        });
-        const page = browser.pages()[0] || await browser.newPage();
-
         const publishedPhotos = [];
         const failures = [];
 
-        try {
-          await page.goto("https://glass.photo/upload");
-          // Auth will use stored browser state or require manual login
+        for (const file of processedData.processedFiles) {
+          try {
+            context.logger.info(`Uploading ${file.outputPath} to Glass...`);
 
-          for (const file of processedData.processedFiles) {
-            try {
-              context.logger.info(`Uploading ${file.outputPath}...`);
+            const script = await buildGlassUploadScript(
+              file.outputPath,
+              args.title,
+              args.category,
+            );
 
-              const fileInput = await page.locator('input[type="file"]');
-              await fileInput.setInputFiles(file.outputPath);
+            const proc = new Deno.Command("osascript", {
+              args: ["-e", script],
+              stdout: "piped",
+              stderr: "piped",
+            });
+            const result = await proc.output();
 
-              if (args.title) {
-                const titleInput = await page.locator(
-                  '[name="title"], [placeholder*="title"]',
-                );
-                await titleInput.fill(args.title);
-              }
-
-              if (args.category) {
-                const categorySelect = await page.locator(
-                  '[name="category"]',
-                );
-                await categorySelect.selectOption(args.category);
-              }
-
-              await page.locator(
-                'button[type="submit"], button:has-text("Post")',
-              ).click();
-              await page.waitForURL(/glass\.photo\/\w+\/\w+/, {
-                timeout: 30000,
-              });
-
-              publishedPhotos.push({
-                sourcePath: file.outputPath,
-                glassUrl: page.url(),
-                title: args.title || null,
-                publishedAt: new Date().toISOString(),
-              });
-            } catch (err) {
-              failures.push({
-                sourcePath: file.outputPath,
-                error: err instanceof Error ? err.message : String(err),
-              });
+            if (!result.success) {
+              const stderr = new TextDecoder().decode(result.stderr);
+              throw new Error(`AppleScript failed: ${stderr}`);
             }
-          }
-        } finally {
-          await browser.close();
-        }
 
-        context.logger.info(
-          `Auth state persisted to ${authDir} — future runs will reuse session`,
-        );
+            const url = new TextDecoder().decode(result.stdout).trim();
+            publishedPhotos.push({
+              sourcePath: file.outputPath,
+              glassUrl: url || "https://glass.photo",
+              title: args.title || null,
+              publishedAt: new Date().toISOString(),
+            });
+          } catch (err) {
+            failures.push({
+              sourcePath: file.outputPath,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
 
         const result = {
           publishedPhotos,
@@ -374,7 +345,7 @@ export const model = {
 
         const handle = await context.writeResource(
           "published",
-          "current",
+          "publish-current",
           result,
         );
         return { dataHandles: [handle] };

@@ -156,9 +156,9 @@ describe("photos schemas", () => {
       assertEquals(result.success, true);
     });
 
-    it("accepts headless flag", () => {
+    it("rejects unknown fields", () => {
       const result = PublishArgsSchema.safeParse({ headless: false });
-      assertEquals(result.success, true);
+      assertEquals(result.success, true); // zod strips unknown by default
     });
   });
 
