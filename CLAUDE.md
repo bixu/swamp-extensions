@@ -41,3 +41,37 @@ consumption, run `swamp help [<command>...]` — e.g. `swamp help` returns
 the full tree, and `swamp help model method run` scopes to a subtree.
 <!-- END swamp managed section -->
 
+## Repository Layout
+
+This is a monorepo of publishable swamp extensions following the
+[swamp-club/swamp-extensions](https://github.com/swamp-club/swamp-extensions)
+pattern.
+
+```
+model/<name>/          # One directory per publishable extension
+  manifest.yaml        # paths.base: manifest; models listed as bare filenames
+  <model>.ts           # Model source (flat alongside manifest)
+  <helpers>.ts         # Helper modules (listed in additionalFiles)
+  <model>_test.ts      # Tests
+  deno.json            # Per-extension fmt/lint/test config
+  README.md
+  LICENSE.txt
+extensions/models/     # Only upstream_extensions.json lives here (pulled extension lockfile)
+.claude/skills/        # Skills for Claude Code (swamp, swamp-wheelshop, etc.)
+```
+
+### Creating a new extension
+
+1. `mkdir model/<name>` and add source files flat in that directory
+2. Create `manifest.yaml` with `paths: { base: manifest }` and `models:` as bare filenames
+3. Create `deno.json` (copy from any existing `model/*/deno.json`)
+4. Run `swamp-wheelshop` before hand-rolling non-trivial logic
+5. Run checks from the extension dir: `deno fmt --check && deno lint && deno task test`
+6. Push: `cd model/<name> && swamp extension push manifest.yaml --json`
+
+### Testing published extensions
+
+Pull into the root workspace (no type conflicts since source lives in `model/`):
+```bash
+swamp extension pull @bixu/<name>
+```

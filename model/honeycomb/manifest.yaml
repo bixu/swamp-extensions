@@ -1,0 +1,21 @@
+manifestVersion: 1
+name: "@bixu/honeycomb"
+version: "2026.04.23.2"
+description: "Manage Honeycomb resources (environments, API keys, datasets) via the Honeycomb Management and Configuration APIs"
+repository: https://github.com/bixu/swamp-extensions
+paths:
+  base: manifest
+additionalFiles:
+  - honeycomb_helpers.ts
+  - README.md
+  - LICENSE.txt
+models:
+  - honeycomb.ts
+platforms:
+  - darwin-aarch64
+  - darwin-x86_64
+  - linux-x86_64
+  - linux-aarch64
+labels:
+  - honeycomb
+  - observability

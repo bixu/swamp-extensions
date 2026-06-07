@@ -1,17 +1,13 @@
 {
-  "fmt": {
-    "include": ["**/*.ts"]
-  },
-  "lint": {
-    "include": ["**/*.ts"],
-    "rules": {
-      "exclude": ["no-import-prefix"]
-    }
-  },
-  "test": {
-    "include": ["**/*_test.ts"]
-  },
-  "tasks": {
-    "test": "deno test --allow-env --allow-read --allow-write"
-  }
+  "workspace": [
+    "model/wheelshop",
+    "model/github",
+    "model/github-security",
+    "model/honeycomb",
+    "model/slack",
+    "model/tailnet-healthcheck",
+    "model/homekit",
+    "model/zfs",
+    "model/k8s-exec"
+  ]
 }
