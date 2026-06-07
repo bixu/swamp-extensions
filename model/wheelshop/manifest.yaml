@@ -1,0 +1,27 @@
+manifestVersion: 1
+name: "@bixu/wheelshop"
+version: "2026.06.07.1"
+description: "Trust-gate auditor for npm/jsr packages used inside swamp extension models — agents pick candidates, wheelshop scores them against license, downloads, vulnerabilities, maintenance, and type-availability gates"
+repository: https://github.com/bixu/swamp-extensions
+paths:
+  base: manifest
+models:
+  - wheelshop.ts
+skills:
+  - swamp-wheelshop
+additionalFiles:
+  - wheelshop_helpers.ts
+  - README.md
+  - LICENSE.txt
+platforms:
+  - darwin-aarch64
+  - darwin-x86_64
+  - linux-x86_64
+  - linux-aarch64
+labels:
+  - npm
+  - jsr
+  - dependencies
+  - supply-chain
+  - typescript
+  - guardrail

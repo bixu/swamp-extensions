@@ -1,0 +1,18 @@
+manifestVersion: 1
+name: "@bixu/express-hello"
+version: "2026.04.23.1"
+description: "Demo Express.js app that runs in Docker and serves random Wikipedia images — reference implementation for swamp extensions"
+repository: https://github.com/bixu/swamp-extensions
+paths:
+  base: manifest
+models:
+  - express_hello.ts
+platforms:
+  - darwin-aarch64
+  - darwin-x86_64
+  - linux-x86_64
+  - linux-aarch64
+labels:
+  - demo
+  - docker
+  - express
