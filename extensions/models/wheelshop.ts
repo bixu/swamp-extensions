@@ -198,7 +198,7 @@ async function osvVulns(
   }
 }
 
-function extractRepo(manifest: NpmManifest | null): string | null {
+export function extractRepo(manifest: NpmManifest | null): string | null {
   if (!manifest) return null;
   if (typeof manifest.repository === "string") return manifest.repository;
   if (manifest.repository && typeof manifest.repository === "object") {
@@ -207,7 +207,7 @@ function extractRepo(manifest: NpmManifest | null): string | null {
   return null;
 }
 
-function extractLicense(manifest: NpmManifest | null): string | null {
+export function extractLicense(manifest: NpmManifest | null): string | null {
   if (!manifest) return null;
   if (typeof manifest.license === "string") return manifest.license;
   if (manifest.license && typeof manifest.license === "object") {
@@ -352,20 +352,23 @@ async function enrichJsrCandidate(
   };
 }
 
-interface CandidateResult {
+export interface CandidateResult {
   facts: PkgFacts;
   blockers: string[];
   approved: boolean;
   score: number;
 }
 
-function compareCandidates(a: CandidateResult, b: CandidateResult): number {
+export function compareCandidates(
+  a: CandidateResult,
+  b: CandidateResult,
+): number {
   // Approved candidates rank above rejected ones regardless of score.
   if (a.approved !== b.approved) return a.approved ? -1 : 1;
   return b.score - a.score;
 }
 
-function buildOutput(
+export function buildOutput(
   ranked: CandidateResult[],
   unsafe: boolean,
 ): {
@@ -426,7 +429,8 @@ export const model = {
       description:
         "Audit a list of candidate npm/jsr packages against trust gates (license, downloads, vulnerabilities, recency, types) and return ranked verdicts. Agents handle discovery and semantic relevance; this method only handles gating and scoring. If every candidate fails the gates, returns action='ask_user' so the agent knows to prompt a human.",
       arguments: EvaluateArgs,
-      execute: async (args, context) => {
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
         const ttlMs = (context.globalArgs.cacheTtlHours as number) *
           60 * 60 * 1000;
         const cacheDir = context.globalArgs.cacheDir as string;
@@ -444,7 +448,9 @@ export const model = {
         for (let i = 0; i < args.packages.length; i += EVALUATE_CONCURRENCY) {
           const batch = args.packages.slice(i, i + EVALUATE_CONCURRENCY);
           const settled = await Promise.allSettled(
-            batch.map((p) =>
+            batch.map((
+              p: { name: string; version?: string; registry: "npm" | "jsr" },
+            ) =>
               p.registry === "jsr"
                 ? enrichJsrCandidate(p.name, p.version, fetchOpts)
                 : enrichNpmCandidate(p.name, p.version, fetchOpts)
@@ -554,7 +560,7 @@ export const model = {
  * strip characters that would create unwanted nesting or are not safe across
  * platforms.
  */
-function sanitiseInstanceName(input: string): string {
+export function sanitiseInstanceName(input: string): string {
   const clean = input
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
