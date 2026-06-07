@@ -25,6 +25,7 @@ jobs:
           - homekit
           - zfs
           - k8s-exec
+          - photos
 
     steps:
       - name: Setup repo

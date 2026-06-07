@@ -8,6 +8,7 @@
     "model/tailnet-healthcheck",
     "model/homekit",
     "model/zfs",
-    "model/k8s-exec"
+    "model/k8s-exec",
+    "model/photos"
   ]
 }
