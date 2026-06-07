@@ -1,14 +1,19 @@
 # @bixu/wheelshop
 
-A [swamp](https://github.com/systeminit/swamp) extension model that helps
-agents (and humans) discover proven npm/jsr TypeScript libraries instead of
-reinventing logic in swamp-native TS.
+A [swamp](https://github.com/systeminit/swamp) extension model that scores
+npm/jsr TypeScript packages against trust gates so swamp extension authors (and
+the agents working alongside them) can verify a candidate package is safe to
+depend on before adding the import.
 
-Recommendations are filtered through trust gates — weekly downloads, license,
-last publish date, maintenance score, OSV vulnerabilities, and type
-availability. When all candidates fail the gates, wheelshop returns
-`action: "ask_user"` so the calling agent knows to prompt a human rather than
-silently fall back to a custom implementation.
+Trust gates: weekly downloads, license, last publish date, maintenance score,
+OSV vulnerabilities, type availability. When every candidate fails the gates,
+wheelshop returns `action: "ask_user"` so the calling agent knows to prompt a
+human rather than silently fall back to a custom implementation.
+
+**Discovery is not wheelshop's job.** Searching the registry and picking
+semantically relevant candidates is the agent's responsibility. Wheelshop audits
+whatever list it's given. See the bundled `swamp-wheelshop` skill for the
+agent-side flow.
 
 ## Installation
 
@@ -26,93 +31,92 @@ name: wheelshop
 globalArguments: {}
 ```
 
-Then call methods:
+Then call the `evaluate` method with a list of candidates:
 
 ```bash
-# Find proven libraries for an intent
-swamp model method run wheelshop search \
-  --input intent="parse cron expressions" \
-  --json
-
-# Refine with extra keywords + runtime preference
-swamp model method run wheelshop search \
-  --input intent="exponential backoff" \
-  --input keywords='["typescript","retry"]' \
+swamp model method run wheelshop evaluate \
+  --input packages='[{"name":"p-retry"},{"name":"async-retry"},{"name":"got"}]' \
   --input runtime=deno \
-  --input limit=3 \
-  --json
-
-# Audit a specific package + version
-swamp model method run wheelshop audit \
-  --input package=cron-parser \
-  --input version=5.5.0 \
   --json
 ```
 
-## Methods
+Each entry in `packages` is `{name, version?, registry?}`:
 
-### `search`
+- `name` — npm or JSR package name (scoped or unscoped for npm; JSR is always
+  scoped `@scope/name`)
+- `version` — optional; defaults to the latest published version
+- `registry` — `"npm"` (default) or `"jsr"`
 
-| Argument   | Type                          | Default | Description                                                                |
-| ---------- | ----------------------------- | ------- | -------------------------------------------------------------------------- |
-| `intent`   | string                        | —       | Plain-English description of what you need a library for                   |
-| `keywords` | string[]                      | `[]`    | Optional extra search terms                                                |
-| `runtime`  | `"deno"` \| `"node"` \| `"both"` | `"both"` | Target runtime — jsr is preferred when `deno` or `both`                  |
-| `limit`    | number (1-20)                 | `5`     | Max candidates to return after filtering                                   |
-| `unsafe`   | boolean                       | `false` | Include candidates that fail trust gates (do not enable without approval) |
+## Method
 
-Returns a JSON object with `candidates`, `rejected`, and an `action`:
+### `evaluate`
 
-- `action: "ok"` — at least one candidate passed the gates.
-- `action: "ask_user"` — no candidate passed; the agent should prompt a human
-  rather than fall back to a custom implementation.
+| Argument   | Type                                 | Default  | Description                                                                       |
+| ---------- | ------------------------------------ | -------- | --------------------------------------------------------------------------------- |
+| `packages` | `Array<{name, version?, registry?}>` | —        | 1-20 candidate packages to audit                                                  |
+| `runtime`  | `"deno"` \| `"node"` \| `"both"`     | `"both"` | Target runtime — affects scoring; JSR candidates boosted for `deno` or `both`     |
+| `unsafe`   | boolean                              | `false`  | Mark every candidate approved even when blockers exist (require explicit consent) |
 
-### `audit`
+Returns:
 
-| Argument  | Type    | Default    | Description                                  |
-| --------- | ------- | ---------- | -------------------------------------------- |
-| `package` | string  | —          | npm package name (scoped or unscoped)        |
-| `version` | string  | `"latest"` | Specific version to audit                    |
-| `unsafe`  | boolean | `false`    | Mark `approved=true` even if blockers exist  |
+```json
+{
+  "action": "ok",
+  "candidates": [
+    {
+      "package": "p-retry",
+      "version": "6.2.1",
+      "registry": "npm",
+      "approved": true,
+      "score": 5.94,
+      "rationale": "...",
+      "snippet": "import * as p_retry from \"npm:p-retry@6.2.1\";",
+      "blockers": [],
+      "...": "remaining facts"
+    }
+  ],
+  "notFound": [],
+  "thresholds": { "...": "..." }
+}
+```
 
-Returns a JSON `auditReport` with `approved`, `blockers`, and the full set of
-extracted facts.
+- `action: "ok"` — at least one candidate passed the gates (or `unsafe=true`).
+- `action: "ask_user"` — every candidate failed; the agent should prompt the
+  user rather than fall back to a custom implementation.
 
 ## Trust Gates
 
 Each gate is a `blocker` unless `unsafe=true`:
 
-| Gate                  | Default                                                          |
-| --------------------- | ---------------------------------------------------------------- |
-| Weekly downloads      | < 1,000                                                          |
-| License               | not in MIT, Apache-2.0, BSD-2/3-Clause, ISC, 0BSD, MPL-2.0, etc. |
-| Last publish          | > 24 months ago                                                  |
-| Maintenance score     | < 0.4 (npm search composite)                                     |
-| Deprecated flag       | `true`                                                           |
-| OSV vulnerabilities   | any HIGH/CRITICAL/UNKNOWN-severity advisory                      |
-| Maintainer count      | 0 (orphaned)                                                     |
-| Type availability     | no `types`, `typings`, or types in `exports` map                 |
+| Gate                | Default                                                          |
+| ------------------- | ---------------------------------------------------------------- |
+| Weekly downloads    | < 1,000                                                          |
+| License             | not in MIT, Apache-2.0, BSD-2/3-Clause, ISC, 0BSD, MPL-2.0, etc. |
+| Last publish        | > 24 months ago                                                  |
+| Maintenance score   | < 0.4 (npm search composite)                                     |
+| Deprecated flag     | `true`                                                           |
+| OSV vulnerabilities | any HIGH/CRITICAL/UNKNOWN-severity advisory                      |
+| Maintainer count    | 0 (orphaned)                                                     |
+| Type availability   | no `types`, `typings`, or types in `exports` map                 |
 
-JSR packages get a small ranking boost when `runtime` is `deno` or `both`
-because JSR enforces TS-native publishing, provenance, and disallows install
-scripts at the registry level.
+JSR packages bypass the license, downloads, and types gates because JSR enforces
+SPDX licensing, TS-native publishing, and provenance at the registry level. JSR
+candidates get a small ranking boost when `runtime` is `deno` or `both`.
 
 ## Caching
 
-Registry responses are cached on disk for 24h at
-`$HOME/.cache/swamp-wheelshop/` (override with `globalArguments.cacheDir` and
-`globalArguments.cacheTtlHours`). Cache writes are best-effort; failures don't
-propagate.
+Registry responses are cached on disk for 24h at `$HOME/.cache/swamp-wheelshop/`
+(override with `globalArguments.cacheDir` and `globalArguments.cacheTtlHours`).
+Cache writes are best-effort; failures don't propagate.
 
 ## Data Sources
 
-- [registry.npmjs.org/-/v1/search](https://github.com/npm/registry/blob/main/docs/REGISTRY-API.md#get-v1search)
-  — package search with popularity-weighted ranking + composite quality scores
-- [registry.npmjs.org](https://registry.npmjs.org/) — manifest, deprecated
-  flag, types, license, publish dates
+- [registry.npmjs.org](https://registry.npmjs.org/) — manifest, deprecated flag,
+  types, license, publish dates, maintainers
 - [api.npmjs.org](https://api.npmjs.org/) — weekly download counts
-- [api.osv.dev](https://api.osv.dev/) — vulnerability advisories
-- [jsr.io](https://jsr.io/) — JSR package search (best-effort)
+- [api.osv.dev](https://api.osv.dev/) — vulnerability advisories (npm + JSR
+  ecosystems)
+- [jsr.io/api](https://jsr.io/api) — JSR package and version metadata
 
 ## License
 
