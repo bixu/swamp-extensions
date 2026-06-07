@@ -408,7 +408,7 @@ export function buildOutput(
 /** Wheelshop extension model. */
 export const model = {
   type: "@bixu/wheelshop",
-  version: "2026.06.07.0",
+  version: "2026.06.07.1",
   globalArguments: GlobalArgsSchema,
   resources: {
     evaluation: {
