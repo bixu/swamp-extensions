@@ -1,52 +1,39 @@
 /**
  * @module
- * Export photos from Apple Photos, process for web, and publish to Glass.
+ * Watch a directory for new photos, process for web, and publish to Glass.
  *
- * Uses aphex-swift for Photos library access, macOS sips for image processing,
- * and playwright for browser-automated Glass uploads.
+ * Uses macOS sips for image processing and Safari AppleScript for Glass uploads.
+ * Designed to run as a scheduled workflow via swamp serve.
  */
 import { z } from "npm:zod@4";
 import {
-  buildAphexCommand,
   buildGlassUploadScript,
-  parseAphexOutput,
   processWithSips,
-  resolveExportDir,
+  scanDirectory,
 } from "./photos_helpers.ts";
 
-/** Global arguments: album name and optional binary/export paths. */
+/** Global arguments: source directory and optional processing output path. */
 export const GlobalArgsSchema = z.object({
-  album: z.string().describe("Apple Photos album name to publish from"),
-  aphexBinaryPath: z.string().optional().describe(
-    "Override path to aphex-swift binary (default: bundled binary)",
-  ),
+  sourceDir: z.string().describe("Directory to watch for new photos"),
   exportDir: z.string().optional().describe(
-    "Directory for exported photos (default: temp dir)",
+    "Directory for processed output (default: sourceDir/processed)",
   ),
 });
 
-/** Arguments for the export method. */
-export const ExportArgsSchema = z.object({
-  limit: z.number().optional().describe("Max photos to export"),
-  originals: z.boolean().default(false).describe(
-    "Export originals instead of edited versions",
+/** Arguments for the scan method. */
+export const ScanArgsSchema = z.object({
+  extensions: z.array(z.string()).optional().describe(
+    "File extensions to include (default: jpeg, jpg, heic, heif, png, tiff)",
   ),
 });
 
-const ExportedFileSchema = z.object({
-  uuid: z.string(),
-  filename: z.string(),
-  exportedPath: z.string(),
-  title: z.string().nullable(),
-  dateCreated: z.string(),
-});
-
-/** Schema for export method output. */
-export const ExportResultSchema = z.object({
-  album: z.string(),
-  exportedFiles: z.array(ExportedFileSchema),
-  totalExported: z.number(),
-  exportedAt: z.string(),
+/** Schema for scan method output. */
+export const ScanResultSchema = z.object({
+  sourceDir: z.string(),
+  newFiles: z.array(z.string()),
+  previouslyProcessed: z.array(z.string()),
+  totalNew: z.number(),
+  scannedAt: z.string(),
 });
 
 /** Arguments for the process method. */
@@ -100,15 +87,18 @@ export const PublishResultSchema = z.object({
   publishedAt: z.string(),
 });
 
-/** Photos extension model — Apple Photos to Glass pipeline. */
+/** Schema for export method output (kept for compatibility). */
+export const ExportResultSchema = ScanResultSchema;
+
+/** Photos extension model — directory watcher to Glass pipeline. */
 export const model = {
   type: "@bixu/photos",
-  version: "2026.06.07.1",
+  version: "2026.06.07.2",
   globalArguments: GlobalArgsSchema,
   resources: {
-    "export": {
-      description: "Exported photo files from Apple Photos",
-      schema: ExportResultSchema,
+    "scan": {
+      description: "Scan results — new files found in source directory",
+      schema: ScanResultSchema,
       lifetime: "1d" as const,
       garbageCollection: 10,
     },
@@ -126,15 +116,17 @@ export const model = {
     },
   },
   methods: {
-    export: {
+    scan: {
       description:
-        "Export photos from a named Apple Photos album using aphex-swift",
-      arguments: ExportArgsSchema,
+        "Scan source directory for new image files not yet processed",
+      arguments: ScanArgsSchema,
       execute: async (
-        args: z.infer<typeof ExportArgsSchema>,
+        args: z.infer<typeof ScanArgsSchema>,
         context: {
           globalArgs: z.infer<typeof GlobalArgsSchema>;
-          extensionFile: (relativePath: string) => string;
+          readResource: (
+            instanceName: string,
+          ) => Promise<Record<string, unknown> | null>;
           writeResource: (
             spec: string,
             name: string,
@@ -145,73 +137,32 @@ export const model = {
           };
         },
       ) => {
-        const {
-          album,
-          aphexBinaryPath: overridePath,
-          exportDir: configuredDir,
-        } = context.globalArgs;
-        const aphexBinaryPath = overridePath ||
-          context.extensionFile("aphex-swift");
-        const exportDir = resolveExportDir(configuredDir, album);
+        const { sourceDir } = context.globalArgs;
+        const allFiles = await scanDirectory(sourceDir, args.extensions);
 
-        await Deno.mkdir(exportDir, { recursive: true });
+        const prev = await context.readResource!("scan-state");
+        const previouslyProcessed: string[] = prev
+          ? (prev as { processed: string[] }).processed || []
+          : [];
 
-        context.logger.info(`Querying album "${album}" via aphex-swift...`);
-        const infoCmd = buildAphexCommand(aphexBinaryPath, "photo-info", [
-          album,
-        ]);
-        const infoProc = new Deno.Command(infoCmd[0], {
-          args: infoCmd.slice(1),
-          stdout: "piped",
-          stderr: "piped",
-        });
-        const infoOutput = await infoProc.output();
-        const photos = parseAphexOutput(
-          new TextDecoder().decode(infoOutput.stdout),
-        );
+        const processedSet = new Set(previouslyProcessed);
+        const newFiles = allFiles.filter((f) => !processedSet.has(f));
 
-        const toExport = args.limit ? photos.slice(0, args.limit) : photos;
         context.logger.info(
-          `Found ${photos.length} photos, exporting ${toExport.length}...`,
-        );
-
-        const exportArgs = [album, "--destination", exportDir];
-        if (args.originals) exportArgs.push("--originals");
-        const exportCmd = buildAphexCommand(
-          aphexBinaryPath,
-          "export",
-          exportArgs,
-        );
-        const exportProc = new Deno.Command(exportCmd[0], {
-          args: exportCmd.slice(1),
-          stdout: "piped",
-          stderr: "piped",
-        });
-        const exportOutput = await exportProc.output();
-        const exportedPaths: string[] = JSON.parse(
-          new TextDecoder().decode(exportOutput.stdout),
-        );
-
-        const exportedFiles = toExport.slice(0, exportedPaths.length).map(
-          (photo, i) => ({
-            uuid: photo.uuid as string,
-            filename: exportedPaths[i].split("/").pop() || "",
-            exportedPath: exportedPaths[i],
-            title: (photo.title as string) || null,
-            dateCreated: photo.dateCreated as string,
-          }),
+          `Scanned ${sourceDir}: ${allFiles.length} total, ${newFiles.length} new`,
         );
 
         const result = {
-          album,
-          exportedFiles,
-          totalExported: exportedFiles.length,
-          exportedAt: new Date().toISOString(),
+          sourceDir,
+          newFiles,
+          previouslyProcessed,
+          totalNew: newFiles.length,
+          scannedAt: new Date().toISOString(),
         };
 
         const handle = await context.writeResource(
-          "export",
-          "export-current",
+          "scan",
+          "scan-current",
           result,
         );
         return { dataHandles: [handle] };
@@ -219,7 +170,7 @@ export const model = {
     },
     process: {
       description:
-        "Resize and convert exported photos for Glass using macOS sips",
+        "Resize and convert scanned photos for Glass using macOS sips",
       arguments: ProcessArgsSchema,
       execute: async (
         args: z.infer<typeof ProcessArgsSchema>,
@@ -238,33 +189,53 @@ export const model = {
           };
         },
       ) => {
-        const raw = await context.readResource!("export-current");
-        if (!raw) throw new Error("No export data found — run export first");
+        const raw = await context.readResource!("scan-current");
+        if (!raw) throw new Error("No scan data found — run scan first");
 
-        const exportData = raw as unknown as z.infer<typeof ExportResultSchema>;
-        const processedDir = resolveExportDir(
-          context.globalArgs.exportDir,
-          context.globalArgs.album,
-        ) + "/processed";
+        const scanData = raw as unknown as z.infer<typeof ScanResultSchema>;
+        if (scanData.newFiles.length === 0) {
+          context.logger.info("No new files to process");
+          const result = {
+            processedFiles: [],
+            totalProcessed: 0,
+            processedAt: new Date().toISOString(),
+          };
+          const handle = await context.writeResource(
+            "processed",
+            "process-current",
+            result,
+          );
+          return { dataHandles: [handle] };
+        }
+
+        const processedDir = context.globalArgs.exportDir ||
+          `${context.globalArgs.sourceDir}/processed`;
         await Deno.mkdir(processedDir, { recursive: true });
 
         const processedFiles = [];
-        for (const file of exportData.exportedFiles) {
-          context.logger.info(`Processing ${file.filename}...`);
-          const result = await processWithSips(
-            file.exportedPath,
-            processedDir,
-            {
-              maxWidth: args.maxWidth,
-              format: args.format,
-              quality: args.quality,
-            },
-          );
-          processedFiles.push({
-            sourcePath: file.exportedPath,
-            ...result,
+        for (const filePath of scanData.newFiles) {
+          const filename = filePath.split("/").pop() || "";
+          context.logger.info(`Processing ${filename}...`);
+          const result = await processWithSips(filePath, processedDir, {
+            maxWidth: args.maxWidth,
+            format: args.format,
+            quality: args.quality,
           });
+          processedFiles.push({ sourcePath: filePath, ...result });
         }
+
+        // Update the processed-files tracker
+        const prev = await context.readResource!("scan-state");
+        const previouslyProcessed: string[] = prev
+          ? (prev as { processed: string[] }).processed || []
+          : [];
+        const updatedProcessed = [
+          ...previouslyProcessed,
+          ...scanData.newFiles,
+        ];
+        await context.writeResource("scan", "scan-state", {
+          processed: updatedProcessed,
+        });
 
         const result = {
           processedFiles,
@@ -282,7 +253,7 @@ export const model = {
     },
     publish: {
       description:
-        "Upload processed photos to Glass via Safari AppleScript automation",
+        "Stage processed photos in Glass upload modal via Safari AppleScript",
       arguments: PublishArgsSchema,
       execute: async (
         args: z.infer<typeof PublishArgsSchema>,
@@ -310,6 +281,21 @@ export const model = {
           typeof ProcessResultSchema
         >;
 
+        if (processedData.processedFiles.length === 0) {
+          context.logger.info("No processed files to publish");
+          const result = {
+            publishedPhotos: [],
+            totalPublished: 0,
+            publishedAt: new Date().toISOString(),
+          };
+          const handle = await context.writeResource(
+            "published",
+            "publish-current",
+            result,
+          );
+          return { dataHandles: [handle] };
+        }
+
         const publishedPhotos = [];
         const failures = [];
 
@@ -320,7 +306,6 @@ export const model = {
             const script = await buildGlassUploadScript(
               file.outputPath,
               args.title,
-              args.category,
             );
 
             const proc = new Deno.Command("osascript", {

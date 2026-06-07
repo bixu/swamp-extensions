@@ -1,30 +1,32 @@
 import { join } from "jsr:@std/path@1";
 
-export function buildAphexCommand(
-  binaryPath: string,
-  subcommand: string,
-  args: string[],
-): string[] {
-  return [binaryPath, subcommand, ...args];
-}
+const IMAGE_EXTENSIONS = new Set([
+  "jpeg",
+  "jpg",
+  "heic",
+  "heif",
+  "png",
+  "tiff",
+  "tif",
+]);
 
-export function parseAphexOutput(stdout: string): Record<string, unknown>[] {
-  const trimmed = stdout.trim();
-  if (trimmed === "") return [];
-  return JSON.parse(trimmed);
-}
+export async function scanDirectory(
+  sourceDir: string,
+  extensions?: string[],
+): Promise<string[]> {
+  const allowedExts = extensions
+    ? new Set(extensions.map((e) => e.toLowerCase()))
+    : IMAGE_EXTENSIONS;
 
-export function resolveExportDir(
-  exportDir?: string,
-  albumName?: string,
-): string {
-  if (exportDir) return exportDir;
-  const tmpDir = Deno.env.get("TMPDIR") || "/tmp";
-  const slug = (albumName || "photos").toLowerCase().replace(
-    /[^a-z0-9]+/g,
-    "-",
-  );
-  return join(tmpDir, `swamp-photos-${slug}`);
+  const files: string[] = [];
+  for await (const entry of Deno.readDir(sourceDir)) {
+    if (!entry.isFile) continue;
+    const ext = entry.name.split(".").pop()?.toLowerCase() || "";
+    if (allowedExts.has(ext)) {
+      files.push(join(sourceDir, entry.name));
+    }
+  }
+  return files.sort();
 }
 
 export interface SipsResult {
@@ -94,7 +96,6 @@ export async function processWithSips(
 export async function buildGlassUploadScript(
   filePath: string,
   title?: string,
-  _category?: string,
 ): Promise<string> {
   const fileBytes = await Deno.readFile(filePath);
   const base64 = btoa(
@@ -110,20 +111,17 @@ tell application "Safari"
   delay 3
 
   tell front document
-    -- Wait for page to load
     repeat 30 times
       if (do JavaScript "document.readyState") is "complete" then exit repeat
       delay 1
     end repeat
 
-    -- Click the + button to open picker modal
     do JavaScript "
       const plusBtn = document.querySelector('.fa-plus')?.closest('a, button') || document.querySelector('svg.fa-plus')?.parentElement;
       if (plusBtn) plusBtn.click();
     "
     delay 2
 
-    -- Inject file directly into the hidden input (bypass native picker)
     do JavaScript "
       (function() {
         const input = document.querySelector('input[type=file]');
@@ -142,8 +140,7 @@ tell application "Safari"
 
     ${
     escapedTitle
-      ? `-- Set title if a title input exists
-    do JavaScript "
+      ? `do JavaScript "
       const titleInput = document.querySelector('input[name=title], textarea[name=title], [placeholder*=itle], [aria-label*=itle]');
       if (titleInput) {
         titleInput.focus();
@@ -155,7 +152,6 @@ tell application "Safari"
       : ""
   }
 
-    -- Return current URL (user reviews and submits manually)
     set currentURL to URL
     return currentURL
   end tell

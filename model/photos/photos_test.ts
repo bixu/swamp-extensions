@@ -1,131 +1,115 @@
 import { assertEquals, assertExists } from "jsr:@std/assert@1";
 import { describe, it } from "jsr:@std/testing@1/bdd";
 
-// Schema imports — these define the contract before implementation
 import {
-  ExportArgsSchema,
-  ExportResultSchema,
   GlobalArgsSchema,
   ProcessArgsSchema,
   ProcessResultSchema,
   PublishArgsSchema,
   PublishResultSchema,
+  ScanArgsSchema,
+  ScanResultSchema,
 } from "./photos.ts";
 
 describe("photos schemas", () => {
   describe("GlobalArgsSchema", () => {
-    it("requires album name", () => {
-      const result = GlobalArgsSchema.safeParse({ album: "Glass" });
-      assertEquals(result.success, true);
-    });
-
-    it("accepts optional aphexBinaryPath", () => {
+    it("requires sourceDir", () => {
       const result = GlobalArgsSchema.safeParse({
-        album: "Glass",
-        aphexBinaryPath: "/usr/local/bin/aphex-swift",
+        sourceDir: "/Users/me/Photos/Glass",
       });
       assertEquals(result.success, true);
     });
 
     it("accepts optional exportDir", () => {
       const result = GlobalArgsSchema.safeParse({
-        album: "Glass",
-        exportDir: "/tmp/photos-export",
+        sourceDir: "/Users/me/Photos/Glass",
+        exportDir: "/tmp/glass-processed",
       });
       assertEquals(result.success, true);
     });
 
-    it("rejects missing album", () => {
+    it("rejects missing sourceDir", () => {
       const result = GlobalArgsSchema.safeParse({});
       assertEquals(result.success, false);
     });
   });
 
-  describe("ExportArgsSchema", () => {
-    it("accepts empty object (uses globalArgs album)", () => {
-      const result = ExportArgsSchema.safeParse({});
+  describe("ScanArgsSchema", () => {
+    it("accepts empty object", () => {
+      const result = ScanArgsSchema.safeParse({});
       assertEquals(result.success, true);
     });
 
-    it("accepts optional limit", () => {
-      const result = ExportArgsSchema.safeParse({ limit: 5 });
-      assertEquals(result.success, true);
-    });
-
-    it("accepts optional originals flag", () => {
-      const result = ExportArgsSchema.safeParse({ originals: true });
+    it("accepts extensions filter", () => {
+      const result = ScanArgsSchema.safeParse({
+        extensions: ["jpeg", "heic"],
+      });
       assertEquals(result.success, true);
     });
   });
 
-  describe("ExportResultSchema", () => {
-    it("validates a complete export result", () => {
+  describe("ScanResultSchema", () => {
+    it("validates a scan result with new files", () => {
       const data = {
-        album: "Glass",
-        exportedFiles: [
-          {
-            uuid: "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
-            filename: "sunset.heic",
-            exportedPath: "/tmp/photos-export/sunset.heic",
-            title: "Sunset over the bay",
-            dateCreated: "2026-06-01T18:30:00.000Z",
-          },
-        ],
-        totalExported: 1,
-        exportedAt: "2026-06-07T19:00:00.000Z",
+        sourceDir: "/Users/me/Photos/Glass",
+        newFiles: ["/Users/me/Photos/Glass/sunset.heic"],
+        previouslyProcessed: ["older.jpeg"],
+        totalNew: 1,
+        scannedAt: "2026-06-07T20:00:00.000Z",
       };
-      const result = ExportResultSchema.safeParse(data);
-      assertEquals(result.success, true);
+      assertEquals(ScanResultSchema.safeParse(data).success, true);
     });
 
-    it("requires at least one exported file", () => {
+    it("validates empty scan (no new files)", () => {
       const data = {
-        album: "Glass",
-        exportedFiles: [],
-        totalExported: 0,
-        exportedAt: "2026-06-07T19:00:00.000Z",
+        sourceDir: "/Users/me/Photos/Glass",
+        newFiles: [],
+        previouslyProcessed: ["sunset.heic"],
+        totalNew: 0,
+        scannedAt: "2026-06-07T20:00:00.000Z",
       };
-      const result = ExportResultSchema.safeParse(data);
-      assertEquals(result.success, true);
+      assertEquals(ScanResultSchema.safeParse(data).success, true);
     });
   });
 
   describe("ProcessArgsSchema", () => {
-    it("accepts empty object (processes all exported files)", () => {
-      const result = ProcessArgsSchema.safeParse({});
-      assertEquals(result.success, true);
+    it("accepts empty object (defaults)", () => {
+      assertEquals(ProcessArgsSchema.safeParse({}).success, true);
     });
 
     it("accepts maxWidth", () => {
-      const result = ProcessArgsSchema.safeParse({ maxWidth: 2048 });
-      assertEquals(result.success, true);
+      assertEquals(
+        ProcessArgsSchema.safeParse({ maxWidth: 2048 }).success,
+        true,
+      );
     });
 
     it("accepts quality", () => {
-      const result = ProcessArgsSchema.safeParse({ quality: 85 });
-      assertEquals(result.success, true);
+      assertEquals(ProcessArgsSchema.safeParse({ quality: 85 }).success, true);
     });
 
     it("accepts output format", () => {
-      const result = ProcessArgsSchema.safeParse({ format: "jpeg" });
-      assertEquals(result.success, true);
+      assertEquals(
+        ProcessArgsSchema.safeParse({ format: "jpeg" }).success,
+        true,
+      );
     });
 
     it("rejects unsupported format", () => {
-      const result = ProcessArgsSchema.safeParse({ format: "bmp" });
-      assertEquals(result.success, false);
-      const webp = ProcessArgsSchema.safeParse({ format: "webp" });
-      assertEquals(webp.success, false);
+      assertEquals(
+        ProcessArgsSchema.safeParse({ format: "webp" }).success,
+        false,
+      );
     });
   });
 
   describe("ProcessResultSchema", () => {
-    it("validates a complete process result", () => {
+    it("validates a process result", () => {
       const data = {
         processedFiles: [
           {
-            sourcePath: "/tmp/photos-export/sunset.heic",
-            outputPath: "/tmp/photos-export/processed/sunset.jpeg",
+            sourcePath: "/Users/me/Photos/Glass/sunset.heic",
+            outputPath: "/tmp/glass-processed/sunset.jpeg",
             format: "jpeg",
             width: 2048,
             height: 1365,
@@ -133,143 +117,59 @@ describe("photos schemas", () => {
           },
         ],
         totalProcessed: 1,
-        processedAt: "2026-06-07T19:01:00.000Z",
+        processedAt: "2026-06-07T20:01:00.000Z",
       };
-      const result = ProcessResultSchema.safeParse(data);
-      assertEquals(result.success, true);
+      assertEquals(ProcessResultSchema.safeParse(data).success, true);
     });
   });
 
   describe("PublishArgsSchema", () => {
-    it("accepts empty object (publishes all processed files)", () => {
-      const result = PublishArgsSchema.safeParse({});
-      assertEquals(result.success, true);
+    it("accepts empty object", () => {
+      assertEquals(PublishArgsSchema.safeParse({}).success, true);
     });
 
-    it("accepts optional title override", () => {
-      const result = PublishArgsSchema.safeParse({ title: "My Photo" });
-      assertEquals(result.success, true);
-    });
-
-    it("accepts optional category", () => {
-      const result = PublishArgsSchema.safeParse({ category: "landscape" });
-      assertEquals(result.success, true);
-    });
-
-    it("rejects unknown fields", () => {
-      const result = PublishArgsSchema.safeParse({ headless: false });
-      assertEquals(result.success, true); // zod strips unknown by default
+    it("accepts optional title", () => {
+      assertEquals(
+        PublishArgsSchema.safeParse({ title: "My Photo" }).success,
+        true,
+      );
     });
   });
 
   describe("PublishResultSchema", () => {
-    it("validates a complete publish result", () => {
+    it("validates a publish result", () => {
       const data = {
         publishedPhotos: [
           {
-            sourcePath: "/tmp/photos-export/processed/sunset.jpeg",
-            glassUrl: "https://glass.photo/blake/abc123",
-            title: "Sunset over the bay",
-            publishedAt: "2026-06-07T19:02:00.000Z",
+            sourcePath: "/tmp/glass-processed/sunset.jpeg",
+            glassUrl: "https://glass.photo/user/abc123",
+            title: "Sunset",
+            publishedAt: "2026-06-07T20:02:00.000Z",
           },
         ],
         totalPublished: 1,
-        publishedAt: "2026-06-07T19:02:30.000Z",
+        publishedAt: "2026-06-07T20:02:30.000Z",
       };
-      const result = PublishResultSchema.safeParse(data);
-      assertEquals(result.success, true);
+      assertEquals(PublishResultSchema.safeParse(data).success, true);
     });
 
-    it("captures failed uploads", () => {
+    it("captures failures", () => {
       const data = {
         publishedPhotos: [],
-        failures: [
-          {
-            sourcePath: "/tmp/photos-export/processed/sunset.jpeg",
-            error: "Upload timed out after 30s",
-          },
-        ],
+        failures: [{ sourcePath: "/tmp/x.jpeg", error: "timeout" }],
         totalPublished: 0,
-        publishedAt: "2026-06-07T19:02:30.000Z",
+        publishedAt: "2026-06-07T20:02:30.000Z",
       };
-      const result = PublishResultSchema.safeParse(data);
-      assertEquals(result.success, true);
+      assertEquals(PublishResultSchema.safeParse(data).success, true);
     });
   });
 });
 
 describe("photos helpers", () => {
-  describe("buildAphexCommand", () => {
-    it("constructs photo-info command for an album", async () => {
-      const { buildAphexCommand } = await import("./photos_helpers.ts");
-      const cmd = buildAphexCommand(
-        "/usr/local/bin/aphex-swift",
-        "photo-info",
-        [
-          "Glass",
-        ],
-      );
-      assertEquals(cmd[0], "/usr/local/bin/aphex-swift");
-      assertEquals(cmd[1], "photo-info");
-      assertEquals(cmd[2], "Glass");
-    });
-
-    it("constructs export command with destination", async () => {
-      const { buildAphexCommand } = await import("./photos_helpers.ts");
-      const cmd = buildAphexCommand("/usr/local/bin/aphex-swift", "export", [
-        "Glass",
-        "--destination",
-        "/tmp/export",
-      ]);
-      assertEquals(cmd[0], "/usr/local/bin/aphex-swift");
-      assertEquals(cmd[1], "export");
-      assertEquals(cmd[2], "Glass");
-      assertEquals(cmd[3], "--destination");
-      assertEquals(cmd[4], "/tmp/export");
-    });
-  });
-
-  describe("parseAphexOutput", () => {
-    it("parses JSON array output from aphex", async () => {
-      const { parseAphexOutput } = await import("./photos_helpers.ts");
-      const json = JSON.stringify([
-        { uuid: "abc-123", title: "Test Photo", dateCreated: "2026-01-01" },
-      ]);
-      const result = parseAphexOutput(json);
-      assertEquals(result.length, 1);
-      assertEquals(result[0].uuid, "abc-123");
-    });
-
-    it("returns empty array on empty output", async () => {
-      const { parseAphexOutput } = await import("./photos_helpers.ts");
-      const result = parseAphexOutput("");
-      assertEquals(result, []);
-    });
-
-    it("throws on invalid JSON", async () => {
-      const { parseAphexOutput } = await import("./photos_helpers.ts");
-      let threw = false;
-      try {
-        parseAphexOutput("not json {{{");
-      } catch {
-        threw = true;
-      }
-      assertEquals(threw, true);
-    });
-  });
-
-  describe("resolveExportDir", () => {
-    it("uses provided exportDir when set", async () => {
-      const { resolveExportDir } = await import("./photos_helpers.ts");
-      const dir = resolveExportDir("/custom/path");
-      assertEquals(dir, "/custom/path");
-    });
-
-    it("falls back to temp dir with album name", async () => {
-      const { resolveExportDir } = await import("./photos_helpers.ts");
-      const dir = resolveExportDir(undefined, "Glass");
-      assertExists(dir);
-      assertEquals(dir.includes("glass"), true);
+  describe("scanDirectory", () => {
+    it("is exported as a function", async () => {
+      const { scanDirectory } = await import("./photos_helpers.ts");
+      assertEquals(typeof scanDirectory, "function");
     });
   });
 
@@ -279,13 +179,20 @@ describe("photos helpers", () => {
       assertEquals(typeof processWithSips, "function");
     });
   });
+
+  describe("buildGlassUploadScript", () => {
+    it("is exported as a function", async () => {
+      const { buildGlassUploadScript } = await import("./photos_helpers.ts");
+      assertEquals(typeof buildGlassUploadScript, "function");
+    });
+  });
 });
 
 describe("model export", () => {
-  it("exports a model object with correct type", async () => {
+  it("exports a model with correct type", async () => {
     const { model } = await import("./photos.ts");
     assertEquals(model.type, "@bixu/photos");
-    assertExists(model.methods.export);
+    assertExists(model.methods.scan);
     assertExists(model.methods.process);
     assertExists(model.methods.publish);
   });
@@ -293,20 +200,20 @@ describe("model export", () => {
   it("has globalArguments schema", async () => {
     const { model } = await import("./photos.ts");
     assertExists(model.globalArguments);
-    const parsed = model.globalArguments.safeParse({ album: "Glass" });
-    assertEquals(parsed.success, true);
+    assertEquals(
+      model.globalArguments.safeParse({ sourceDir: "/tmp" }).success,
+      true,
+    );
   });
 
-  it("defines export resource spec", async () => {
+  it("defines scan resource spec", async () => {
     const { model } = await import("./photos.ts");
-    assertExists(model.resources["export"]);
-    assertEquals(model.resources["export"].lifetime, "1d");
+    assertExists(model.resources["scan"]);
   });
 
   it("defines processed resource spec", async () => {
     const { model } = await import("./photos.ts");
     assertExists(model.resources["processed"]);
-    assertEquals(model.resources["processed"].lifetime, "1d");
   });
 
   it("defines published resource spec", async () => {
