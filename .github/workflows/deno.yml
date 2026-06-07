@@ -46,6 +46,6 @@ jobs:
       - name: Run tests
         run: |
           if compgen -G "*_test.ts" > /dev/null; then
-            deno test --allow-env --allow-read --allow-write
+            deno task test
           fi
         working-directory: model/${{ matrix.extension }}
