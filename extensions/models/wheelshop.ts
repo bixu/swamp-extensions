@@ -512,8 +512,13 @@ export const model = {
           handles.push(handle);
         }
 
+        // Prefix the summary instance with "summary-" so it can never collide
+        // with a per-candidate evaluation instance name (which would happen
+        // when there's exactly one candidate — both would hash from the same
+        // package name).
         const summaryName = sanitiseInstanceName(
-          ranked.map((c) => c.facts.package).join("-") || "evaluate",
+          "summary-" + (ranked.map((c) => c.facts.package).join("-") ||
+            "evaluate"),
         );
         const summaryHandle = await context.writeResource(
           "evaluationSummary",
