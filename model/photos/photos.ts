@@ -14,6 +14,7 @@ import {
   resolveExportDir,
 } from "./photos_helpers.ts";
 
+/** Global arguments: album name and optional binary/export paths. */
 export const GlobalArgsSchema = z.object({
   album: z.string().describe("Apple Photos album name to publish from"),
   aphexBinaryPath: z.string().default(
@@ -24,6 +25,7 @@ export const GlobalArgsSchema = z.object({
   ),
 });
 
+/** Arguments for the export method. */
 export const ExportArgsSchema = z.object({
   limit: z.number().optional().describe("Max photos to export"),
   originals: z.boolean().default(false).describe(
@@ -39,6 +41,7 @@ const ExportedFileSchema = z.object({
   dateCreated: z.string(),
 });
 
+/** Schema for export method output. */
 export const ExportResultSchema = z.object({
   album: z.string(),
   exportedFiles: z.array(ExportedFileSchema),
@@ -46,6 +49,7 @@ export const ExportResultSchema = z.object({
   exportedAt: z.string(),
 });
 
+/** Arguments for the process method. */
 export const ProcessArgsSchema = z.object({
   maxWidth: z.number().default(2048).describe("Maximum width in pixels"),
   quality: z.number().min(1).max(100).default(90).describe("JPEG quality"),
@@ -63,12 +67,14 @@ const ProcessedFileSchema = z.object({
   fileSizeBytes: z.number(),
 });
 
+/** Schema for process method output. */
 export const ProcessResultSchema = z.object({
   processedFiles: z.array(ProcessedFileSchema),
   totalProcessed: z.number(),
   processedAt: z.string(),
 });
 
+/** Arguments for the publish method. */
 export const PublishArgsSchema = z.object({
   title: z.string().optional().describe("Override photo title for Glass"),
   category: z.string().optional().describe("Glass category"),
@@ -86,6 +92,7 @@ const PublishFailureSchema = z.object({
   error: z.string(),
 });
 
+/** Schema for publish method output. */
 export const PublishResultSchema = z.object({
   publishedPhotos: z.array(PublishedPhotoSchema),
   failures: z.array(PublishFailureSchema).optional(),
@@ -93,6 +100,7 @@ export const PublishResultSchema = z.object({
   publishedAt: z.string(),
 });
 
+/** Photos extension model — Apple Photos to Glass pipeline. */
 export const model = {
   type: "@bixu/photos",
   version: "2026.06.07.1",
