@@ -1,8 +1,11 @@
 // deno-lint-ignore-file no-import-prefix
 import { assertEquals } from "jsr:@std/assert@1";
 import {
+  GitCommitShaSchema,
+  PgpFingerprintSchema,
   PlatformSchema,
   Sha256DigestSchema,
+  Sha256HexSchema,
   SshFingerprintSchema,
 } from "./schemas.ts";
 
@@ -97,5 +100,117 @@ Deno.test("SshFingerprintSchema: rejects MD5 with too few segments", () => {
 
 Deno.test("SshFingerprintSchema: rejects raw base64 with no prefix", () => {
   const r = SshFingerprintSchema.safeParse("47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMp");
+  assertEquals(r.success, false);
+});
+
+// --- Sha256HexSchema ---
+
+Deno.test("Sha256HexSchema: accepts 64 lowercase hex", () => {
+  const h = "a".repeat(64);
+  assertEquals(Sha256HexSchema.parse(h), h);
+});
+
+Deno.test("Sha256HexSchema: accepts a real-looking mixed hex", () => {
+  const h = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+  assertEquals(Sha256HexSchema.parse(h), h);
+});
+
+Deno.test("Sha256HexSchema: rejects the sha256: prefixed form (distinct from Sha256DigestSchema)", () => {
+  const r = Sha256HexSchema.safeParse(`sha256:${"a".repeat(64)}`);
+  assertEquals(r.success, false);
+});
+
+Deno.test("Sha256HexSchema: rejects uppercase hex", () => {
+  const r = Sha256HexSchema.safeParse("A".repeat(64));
+  assertEquals(r.success, false);
+});
+
+Deno.test("Sha256HexSchema: rejects a short hex", () => {
+  const r = Sha256HexSchema.safeParse("a".repeat(63));
+  assertEquals(r.success, false);
+});
+
+Deno.test("Sha256HexSchema: rejects a long hex", () => {
+  const r = Sha256HexSchema.safeParse("a".repeat(65));
+  assertEquals(r.success, false);
+});
+
+Deno.test("Sha256HexSchema: rejects non-hex chars", () => {
+  const r = Sha256HexSchema.safeParse("g".repeat(64));
+  assertEquals(r.success, false);
+});
+
+// --- GitCommitShaSchema ---
+
+Deno.test("GitCommitShaSchema: accepts 40 lowercase hex", () => {
+  const s = "1234567890abcdef1234567890abcdef12345678";
+  assertEquals(GitCommitShaSchema.parse(s), s);
+});
+
+Deno.test("GitCommitShaSchema: rejects an abbreviated 7-char sha", () => {
+  const r = GitCommitShaSchema.safeParse("1234567");
+  assertEquals(r.success, false);
+});
+
+Deno.test("GitCommitShaSchema: rejects an abbreviated 12-char sha", () => {
+  const r = GitCommitShaSchema.safeParse("1234567890ab");
+  assertEquals(r.success, false);
+});
+
+Deno.test("GitCommitShaSchema: rejects uppercase hex", () => {
+  const r = GitCommitShaSchema.safeParse("A".repeat(40));
+  assertEquals(r.success, false);
+});
+
+Deno.test("GitCommitShaSchema: rejects a 64-char (sha256-length) hex", () => {
+  const r = GitCommitShaSchema.safeParse("a".repeat(64));
+  assertEquals(r.success, false);
+});
+
+Deno.test("GitCommitShaSchema: rejects non-hex characters", () => {
+  const r = GitCommitShaSchema.safeParse(
+    "z234567890abcdef1234567890abcdef12345678",
+  );
+  assertEquals(r.success, false);
+});
+
+// --- PgpFingerprintSchema ---
+
+Deno.test("PgpFingerprintSchema: accepts a 40-hex v4 fingerprint", () => {
+  const fp = "ABAF11C65A2970B130ABE3C479BE3E4300411886";
+  assertEquals(PgpFingerprintSchema.parse(fp), fp);
+});
+
+Deno.test("PgpFingerprintSchema: accepts a 64-hex v5 fingerprint", () => {
+  const fp = "A".repeat(64);
+  assertEquals(PgpFingerprintSchema.parse(fp), fp);
+});
+
+Deno.test("PgpFingerprintSchema: rejects lowercase hex", () => {
+  const r = PgpFingerprintSchema.safeParse("a".repeat(40));
+  assertEquals(r.success, false);
+});
+
+Deno.test("PgpFingerprintSchema: rejects mixed case", () => {
+  const r = PgpFingerprintSchema.safeParse(
+    "ABAF11c65A2970B130ABE3C479BE3E4300411886",
+  );
+  assertEquals(r.success, false);
+});
+
+Deno.test("PgpFingerprintSchema: rejects an intermediate length (48 chars)", () => {
+  const r = PgpFingerprintSchema.safeParse("A".repeat(48));
+  assertEquals(r.success, false);
+});
+
+Deno.test("PgpFingerprintSchema: rejects a short key-id (16 hex)", () => {
+  const r = PgpFingerprintSchema.safeParse("A".repeat(16));
+  assertEquals(r.success, false);
+});
+
+Deno.test("PgpFingerprintSchema: rejects spaces (the gpg human-format)", () => {
+  const r = PgpFingerprintSchema.safeParse(
+    "ABAF 11C6 5A29 70B1 30AB  E3C4 79BE 3E43 0041 1886",
+  );
   assertEquals(r.success, false);
 });

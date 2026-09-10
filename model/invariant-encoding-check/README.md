@@ -127,7 +127,14 @@ The extension bundle ships `schemas.ts` as an `additionalFiles` entry.
 The three shapes match what the check enforces. You can import them into
 your own model.
 
-- `Sha256DigestSchema` — `sha256:<64 lowercase hex>`, anchored.
+- `Sha256DigestSchema` — `sha256:<64 lowercase hex>`, anchored. OCI
+  content digest.
+- `Sha256HexSchema` — 64 lowercase hex, NO `sha256:` prefix. Bare SHA-256
+  as `sha256Hex(...)` returns for the OCI patch fingerprint.
+- `GitCommitShaSchema` — 40 lowercase hex. Full git commit sha (never
+  abbreviated).
+- `PgpFingerprintSchema` — 40 or 64 uppercase hex. OpenPGP v4 or v5
+  fingerprint.
 - `PlatformSchema` — OCI platform: `arch`, `os/arch`, or `os/arch/variant`.
 - `SshFingerprintSchema` — `ssh-keygen -lf` output: `SHA256:<base64>` or
   `MD5:<hex-with-colons>`.

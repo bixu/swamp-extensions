@@ -45,3 +45,40 @@ export const SshFingerprintSchema = z.string().regex(
   /^(?:SHA256:[A-Za-z0-9+/=]+|MD5:(?:[0-9a-f]{2}:){15}[0-9a-f]{2})$/,
   "expected SHA256:<base64> or MD5:<hex-with-colons>",
 );
+
+/**
+ * A bare SHA-256 as 64 lowercase hex, NO `sha256:` prefix. This is the
+ * shape `sha256Hex(...)` returns in `base_images.ts` — the OCI manifest
+ * content fingerprint stamped as `com.hivemq.patch.fingerprint`. Distinct
+ * from `Sha256DigestSchema` (which has the prefix). A caller who confuses
+ * the two ends up writing a fingerprint into a digest field, or vice
+ * versa; the schema fails the assignment at write time.
+ */
+export const Sha256HexSchema = z.string().regex(
+  /^[0-9a-f]{64}$/,
+  "expected 64 lowercase hex chars (no sha256: prefix)",
+);
+
+/**
+ * A git commit SHA: 40 lowercase hex. The shape `github_merge.ts` returns
+ * for `MergeSchema.sha` and `FileCommitSchema.fileCommitSha`. An abbreviated
+ * SHA (7-12 chars) fails, so a caller cannot silently pass a short form to
+ * an API that requires the full one.
+ */
+export const GitCommitShaSchema = z.string().regex(
+  /^[0-9a-f]{40}$/,
+  "expected 40 lowercase hex chars (full git commit sha, not abbreviated)",
+);
+
+/**
+ * An OpenPGP fingerprint: 40 uppercase hex (v4) or 64 uppercase hex (v5).
+ * The shape every fingerprint field in `pgp.ts` uses. Lowercase forms
+ * exist in the wild but `gpg --fingerprint --with-colons` and RFC 4880's
+ * §12.2 both emit uppercase; enforcing that case keeps a caller from
+ * feeding a lower-cased copy that a signature-verification API might
+ * silently mismatch on.
+ */
+export const PgpFingerprintSchema = z.string().regex(
+  /^(?:[0-9A-F]{40}|[0-9A-F]{64})$/,
+  "expected 40 or 64 uppercase hex chars (OpenPGP v4 or v5 fingerprint)",
+);
