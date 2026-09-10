@@ -9,6 +9,7 @@
     "model/homekit",
     "model/zfs",
     "model/k8s-exec",
-    "model/photos"
+    "model/photos",
+    "model/invariant-encoding-check"
   ]
 }

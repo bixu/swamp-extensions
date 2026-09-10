@@ -1,0 +1,25 @@
+manifestVersion: 1
+name: "@bixu/invariant-encoding-check"
+version: "2026.09.10.1"
+description: "Fail CI when a changed swamp extension model file leaves a known invariant unencoded in its zod schema — the mechanizable subset of 'make illegal states unrepresentable', plus a set of shared zod schemas for the shapes it enforces (Sha256Digest, Platform, SshFingerprint)"
+repository: https://github.com/bixu/swamp-extensions
+paths:
+  base: manifest
+models:
+  - invariant_encoding_check.ts
+additionalFiles:
+  - schemas.ts
+  - README.md
+  - LICENSE.txt
+platforms:
+  - darwin-aarch64
+  - darwin-x86_64
+  - linux-x86_64
+  - linux-aarch64
+labels:
+  - ci
+  - guardrail
+  - zod
+  - typescript
+  - invariant
+  - swamp
