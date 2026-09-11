@@ -15,6 +15,7 @@ Monorepo of publishable [swamp](https://github.com/swamp-club/swamp) extensions.
 | [@bixu/homekit](model/homekit/) | HomeKit accessory control via HAP |
 | [@bixu/zfs](model/zfs/) | ZFS pool, dataset, and snapshot management |
 | [@bixu/k8s-exec](model/k8s-exec/) | Kubernetes pod command execution |
+| [@bixu/invariant-encoding-check](model/invariant-encoding-check/) | CI gate for unencoded zod invariants in swamp model files |
 
 ## Layout
 

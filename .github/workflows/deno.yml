@@ -26,6 +26,7 @@ jobs:
           - zfs
           - k8s-exec
           - photos
+          - invariant-encoding-check
 
     steps:
       - name: Setup repo
