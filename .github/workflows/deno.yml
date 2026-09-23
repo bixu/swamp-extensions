@@ -27,6 +27,7 @@ jobs:
           - k8s-exec
           - photos
           - invariant-encoding-check
+          - fanboat
 
     steps:
       - name: Setup repo
