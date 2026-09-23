@@ -197,6 +197,7 @@ Deno.test("scanRepo skips unreadable files instead of failing", async () => {
     await Deno.mkdir(join(root, "models"));
     await Deno.writeTextFile(join(root, "models", "bad.yaml"), "name: [oops\n");
     await Deno.writeTextFile(join(root, "models", "no-type.yaml"), "name: x\n");
+    await Deno.symlink("gone.yaml", join(root, "models", "dangling.yaml"));
     await Deno.writeTextFile(
       join(root, "models", "ok.yaml"),
       "type: '@t/boat'\nname: ok\n",
@@ -336,4 +337,26 @@ Deno.test("map refuses a path that is not a directory, before any write", async 
   );
   assertEquals(getWrittenResources().length, 0);
   assertEquals(getWrittenFiles().length, 0);
+});
+
+Deno.test("scanRepo skips .claude inside the repo, not above it", async () => {
+  const parent = await Deno.makeTempDir();
+  const root = join(parent, ".claude", "worktrees", "wt");
+  try {
+    await Deno.mkdir(join(root, "models"), { recursive: true });
+    await Deno.writeTextFile(
+      join(root, "models", "b1.yaml"),
+      `type: "@t/boat"\nid: b-1\nname: b1\n`,
+    );
+    await Deno.mkdir(join(root, ".claude", "skills"), { recursive: true });
+    await Deno.writeTextFile(
+      join(root, ".claude", "skills", "manifest.yaml"),
+      `manifestVersion: 1\nname: "@t/hidden"\nversion: "1"\n`,
+    );
+    const scan = await scanRepo(root);
+    assertEquals(scan.models.map((m) => m.name), ["b1"]);
+    assertEquals(scan.manifests, []);
+  } finally {
+    await Deno.remove(parent, { recursive: true });
+  }
 });
