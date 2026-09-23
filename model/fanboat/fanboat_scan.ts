@@ -12,13 +12,22 @@ import { walk } from "jsr:@std/fs@1.0.24/walk";
 import { exists } from "jsr:@std/fs@1.0.24/exists";
 import { dirname, join, relative } from "jsr:@std/path@1.1.6";
 
-/** Directories never worth walking. */
-const SKIP = [
-  /[\\/]\.git([\\/]|$)/,
-  /[\\/]node_modules([\\/]|$)/,
-  /[\\/]\.swamp([\\/]|$)/,
-  /[\\/]\.claude([\\/]|$)/,
-];
+/**
+ * Directories never worth walking, matched only below `root`: `walk()` tests
+ * absolute paths, so an unanchored `.claude` would also match a parent dir
+ * (e.g. a worktree under `<repo>/.claude/worktrees/`) and skip everything.
+ */
+function skipUnder(root: string): RegExp[] {
+  const base = root.replace(/[\\/]+$/, "").replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&",
+  );
+  return [
+    new RegExp(
+      `^${base}[\\\\/](.*[\\\\/])?(\\.git|node_modules|\\.swamp|\\.claude)([\\\\/]|$)`,
+    ),
+  ];
+}
 
 /** Manifest keys that list TypeScript entry points, by default base dir. */
 const TS_KINDS = {
@@ -184,7 +193,7 @@ async function yamlFiles(dir: string): Promise<string[]> {
     const e of walk(dir, {
       exts: [".yaml", ".yml"],
       includeDirs: false,
-      skip: SKIP,
+      skip: skipUnder(dir),
     })
   ) out.push(e.path);
   return out.sort();
@@ -243,7 +252,7 @@ export async function scanRepo(root: string): Promise<RepoScan> {
     const e of walk(root, {
       match: [/[\\/]manifest\.ya?ml$/],
       includeDirs: false,
-      skip: SKIP,
+      skip: skipUnder(root),
     })
   ) {
     const m = await readYaml(e.path, skipped);
@@ -277,13 +286,22 @@ export async function scanRepo(root: string): Promise<RepoScan> {
   const extDir = join(root, "extensions");
   if (await exists(extDir)) {
     for await (
-      const e of walk(extDir, { exts: [".ts"], includeDirs: false, skip: SKIP })
+      const e of walk(extDir, {
+        exts: [".ts"],
+        includeDirs: false,
+        skip: skipUnder(extDir),
+      })
     ) if (!/_test\.ts$|\.d\.ts$/.test(e.path)) localSources.push(e.path);
   }
 
   const models: ModelDef[] = [];
   for (const p of await yamlFiles(join(root, "models"))) {
-    const text = await Deno.readTextFile(p);
+    let text: string;
+    try {
+      text = await Deno.readTextFile(p);
+    } catch {
+      continue; // e.g. a definition symlink into a missing `.swamp/`
+    }
     let y: Yaml;
     try {
       y = parseYaml(text);
