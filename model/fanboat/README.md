@@ -45,6 +45,53 @@ swamp data get fanboat <repo-name>-graph --json  # graph
 swamp data get fanboat <repo-name>-page --json   # D3 page
 ```
 
+## Example: Generate a Map in CI
+
+This GitHub Actions job maps the repo on every push to `main` and publishes
+the page to GitHub Pages. It assumes the runner already has the swamp CLI on
+`PATH`. The job maps the checkout from a scratch swamp repo, so it never
+writes to the datastore of the repo it maps.
+
+```yaml
+name: Repo map
+on:
+  push:
+    branches: [main]
+jobs:
+  map:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/checkout@v4
+      - name: Map the repo
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          mkdir fanboat site && cd fanboat
+          swamp repo init --json > /dev/null
+          swamp extension pull @bixu/fanboat --json > /dev/null
+          swamp model create @bixu/fanboat fanboat --json > /dev/null
+          swamp model method run fanboat map \
+            --input path="$GITHUB_WORKSPACE" --json > /dev/null
+          repo=$(basename "$GITHUB_WORKSPACE" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n' '-')
+          swamp data get fanboat "$repo-page" --json | jq -r .content > ../site/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/site
+      - uses: actions/deploy-pages@v4
+```
+
+To fail a pull request when the map finds something broken, add this line
+after the `map` step:
+
+```bash
+test "$(swamp data get fanboat "$repo-graph" --json | jq .content.stats.broken)" -eq 0
+```
+
 ## Reading the page
 
 Lanes run left to right. A workflow calls a model's method. The model is an
