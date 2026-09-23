@@ -1,0 +1,463 @@
+<title>__FANBOAT_TITLE__</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --paper:#EFF3F6; --paper-raised:#FFFFFF; --ink:#16232E; --ink-soft:#4C616F;
+    --line:#C6D2DA; --line-soft:#DEE6EB;
+    --cyan:#1C8FA6; --cyan-soft:#DCEEF2; --amber:#B8791C; --amber-soft:#F7E7CB;
+    --red:#B23A2E; --green:#2E7D4F; --green-soft:#DCEEE1; --violet:#6B5AA6;
+    --shadow:0 1px 2px rgba(22,35,46,.06), 0 8px 24px rgba(22,35,46,.06);
+    --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+    --body:"Archivo",system-ui,-apple-system,"Segoe UI",sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme:dark;
+      --paper:#0F1B24; --paper-raised:#16242F; --ink:#E4ECF1; --ink-soft:#9FB2BE;
+      --line:#2B3F4B; --line-soft:#21323C;
+      --cyan:#57BFD6; --cyan-soft:#16323A; --amber:#E8AC4D; --amber-soft:#3A2E17;
+      --red:#E2735F; --green:#6FCB92; --green-soft:#17301F; --violet:#A99AE6;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --paper:#0F1B24; --paper-raised:#16242F; --ink:#E4ECF1; --ink-soft:#9FB2BE;
+    --line:#2B3F4B; --line-soft:#21323C;
+    --cyan:#57BFD6; --cyan-soft:#16323A; --amber:#E8AC4D; --amber-soft:#3A2E17;
+    --red:#E2735F; --green:#6FCB92; --green-soft:#17301F; --violet:#A99AE6;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 var(--body);padding-inline:clamp(16px,3vw,32px);padding-block:20px 32px}
+  header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 32px;padding-bottom:14px;border-bottom:1px solid var(--line)}
+  .eyebrow{font:600 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--cyan)}
+  h1{font:700 clamp(30px,4vw,44px)/1 var(--display);letter-spacing:.01em;margin:6px 0 4px;text-wrap:balance}
+  .meta{font:12px/1.4 var(--mono);color:var(--ink-soft)}
+  .stats{display:flex;flex-wrap:wrap;gap:4px 18px;margin:0;padding:0;list-style:none;font-variant-numeric:tabular-nums}
+  .stats li{display:flex;flex-direction:column}
+  .stats b{font:700 22px/1.1 var(--display)}
+  .stats span{font:500 10px/1.2 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft)}
+  .toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:12px 0}
+  .search{flex:1 1 220px;max-width:360px;font:13px var(--mono);color:var(--ink);background:var(--paper-raised);border:1px solid var(--line);border-radius:6px;padding:7px 10px}
+  .search:focus-visible,.lane-toggle:focus-visible,.node:focus-visible,.panel button:focus-visible,.panel-toggle:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  .toggles{display:flex;flex-wrap:wrap;gap:6px}
+  .lane-toggle{font:500 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);background:transparent;border:1px solid var(--line);border-radius:999px;padding:6px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .lane-toggle[aria-pressed="true"]{color:var(--ink);background:var(--paper-raised);border-color:var(--ink-soft)}
+  .lane-toggle i{width:8px;height:8px;border-radius:50%;display:inline-block}
+  .hint{font:12px var(--mono);color:var(--ink-soft)}
+  .stage{display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px;align-items:start}
+  .canvas{overflow:auto;max-height:78vh;background:var(--paper-raised);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow)}
+  svg{display:block}
+  .lane-head{font:700 15px/1 var(--display);letter-spacing:.06em;text-transform:uppercase;fill:var(--ink)}
+  .lane-count{font:500 10px var(--mono);fill:var(--ink-soft)}
+  .group-head{font:600 9.5px var(--mono);letter-spacing:.04em;fill:var(--ink-soft)}
+  .node{cursor:pointer}
+  .node rect{fill:var(--paper);stroke:var(--line);stroke-width:1}
+  .node.unresolved rect{stroke-dasharray:3 3}
+  .node text{font:500 10.5px var(--mono);fill:var(--ink)}
+  .node:hover rect{stroke:var(--ink-soft)}
+  .node.hit rect{fill:var(--amber-soft);stroke:var(--amber)}
+  .node.on rect{fill:var(--cyan-soft);stroke:var(--cyan)}
+  .node.sel rect{stroke:var(--cyan);stroke-width:2}
+  .node.broken rect{stroke:var(--red);stroke-width:1.5}
+  .node.suspicious rect{stroke:var(--amber);stroke-width:1.5}
+  .badge.broken{fill:var(--red)}
+  .badge.suspicious{fill:var(--amber)}
+  .node .badge-mark{font:700 9px var(--mono);fill:var(--paper-raised)}
+  .problem-btn{font:600 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;background:var(--paper-raised);border:1px solid var(--line);border-radius:999px;padding:6px 10px;cursor:pointer;display:inline-flex;gap:10px}
+  .problem-btn:hover{border-color:var(--ink-soft)}
+  .problem-btn:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  .issue.broken{color:var(--red)}
+  .issue.suspicious{color:var(--amber)}
+  .panel .problems{gap:10px}
+  .panel .problems .issue{font:12px/1.4 var(--body);margin-top:2px}
+  .panel li.issue{font:12px/1.4 var(--body)}
+  .dim .node:not(.on){opacity:.28}
+  .edge{fill:none;stroke-width:1;opacity:.28}
+  .dim .edge{opacity:.05}
+  .dim .edge.on{opacity:.95;stroke-width:1.6}
+  .panel{position:sticky;top:calc(env(safe-area-inset-top,0px) + 12px);width:300px;background:var(--paper-raised);border:1px solid var(--line);border-radius:8px;padding:12px 16px 16px;box-shadow:var(--shadow);max-height:78vh;overflow:auto}
+  .panel.collapsed{width:40px;padding:12px 0;overflow:hidden}
+  .panel-toggle{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:8px;cursor:pointer;font:600 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft)}
+  .panel-toggle:hover{color:var(--ink)}
+  .panel-toggle .chev{display:inline-block;font-size:14px;line-height:1}
+  .panel.collapsed .chev{transform:rotate(90deg)}
+  .panel.collapsed .panel-toggle{writing-mode:vertical-rl;transform:rotate(180deg);margin:0 auto}
+  @media (max-width: 900px){
+    .stage{grid-template-columns:minmax(0,1fr)}
+    .panel,.panel.collapsed{position:static;width:auto;max-height:none;padding:10px 16px}
+    .panel.collapsed .panel-toggle{writing-mode:horizontal-tb;transform:none;margin:0}
+    .panel.collapsed .chev{transform:none}
+  }
+  .panel h2{font:700 22px/1.1 var(--display);margin:6px 0 2px;overflow-wrap:anywhere}
+  .panel .kind{font:600 10px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+  .panel p{margin:8px 0;max-width:65ch}
+  .panel .path{font:12px var(--mono);color:var(--ink-soft);overflow-wrap:anywhere}
+  .panel h3{font:600 10px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin:16px 0 6px}
+  .panel ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+  .panel li{font:12px var(--mono);overflow-wrap:anywhere}
+  .panel-body button{all:unset;cursor:pointer;color:var(--cyan);font:12px var(--mono);overflow-wrap:anywhere}
+  .panel-body button:hover{text-decoration:underline}
+  .panel .rel{color:var(--ink-soft)}
+  .chips{display:flex;flex-wrap:wrap;gap:4px}
+  .chip{font:11px var(--mono);background:var(--line-soft);border-radius:4px;padding:2px 6px}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 14px;font:11px var(--mono);color:var(--ink-soft);margin-top:12px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:18px;height:2px;display:inline-block}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<header>
+  <div>
+    <div class="eyebrow">fanboat · swamp repo map</div>
+    <h1 id="repo"></h1>
+    <div class="meta" id="meta"></div>
+  </div>
+  <ul class="stats" id="stats"></ul>
+</header>
+
+<div class="toolbar">
+  <input id="search" class="search" type="search" placeholder="Find a workflow, model, type, file…" aria-label="Find a node">
+  <div class="toggles" id="toggles" role="group" aria-label="Show lanes"></div>
+  <div id="problems"></div>
+  <span class="hint">Select a node to trace everything it touches.</span>
+</div>
+
+<div class="stage">
+  <aside class="panel collapsed" id="panel">
+    <button class="panel-toggle" id="panelToggle" type="button" aria-expanded="false" aria-controls="panelBody"><span class="chev" aria-hidden="true">›</span><span id="panelTitle">How to read this</span></button>
+    <div class="panel-body" id="panelBody" aria-live="polite" hidden></div>
+  </aside>
+  <div class="canvas" id="canvas"><svg id="map" role="img" aria-label="Repo map"></svg></div>
+</div>
+<div class="legend" id="legend"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script id="fanboat-data" type="application/json">__FANBOAT_DATA__</script>
+<script>
+(function(){
+  "use strict";
+  const G = collapseModels(JSON.parse(document.getElementById("fanboat-data").textContent));
+
+  // One Models node per type; the instances move into the node's panel.
+  function collapseModels(raw){
+    const typeOf = new Map(raw.edges.filter(e=>e.kind==="instanceOf").map(e=>[e.source, e.target]));
+    const merged = new Map(), remap = new Map(), nodes = [];
+    for(const n of raw.nodes){
+      const t = n.kind === "model" && typeOf.get(n.id);
+      if(!t){ nodes.push(n); continue; }
+      const id = "models:" + t;
+      remap.set(n.id, id);
+      if(!merged.has(id)){
+        const m = { id, kind:"model", label:"", group:n.group, instances:[], unresolved:true };
+        merged.set(id, m); nodes.push(m);
+      }
+      const m = merged.get(id);
+      m.instances.push({ label:n.label, path:n.path });
+      m.unresolved = m.unresolved && !!n.unresolved;
+      if(n.issues) (m.issues ||= []).push(...n.issues.map(i=>({ ...i, instance:n.label })));
+    }
+    for(const m of merged.values()){
+      m.instances.sort((a,b)=>a.label.length-b.label.length || d3.ascending(a.label,b.label));
+      m.label = m.instances[0].label + (m.instances.length > 1 ? ` +${m.instances.length-1}` : "");
+      m.path = m.instances.length === 1 ? m.instances[0].path : undefined;
+    }
+    const edges = new Map();
+    for(const e of raw.edges){
+      const source = remap.get(e.source) || e.source, target = remap.get(e.target) || e.target;
+      const key = source + "|" + target + "|" + e.kind;
+      const prev = edges.get(key);
+      if(!prev) edges.set(key, { ...e, source, target });
+      else if(e.label && !(prev.label||"").split(", ").includes(e.label))
+        prev.label = prev.label ? prev.label + ", " + e.label : e.label;
+    }
+    return { ...raw, nodes, edges:[...edges.values()] };
+  }
+
+  const LANES = [
+    { key:"workflow", title:"Workflows", kinds:["workflow"], color:"var(--amber)" },
+    { key:"model",    title:"Models",    kinds:["model"],    color:"var(--cyan)" },
+    { key:"vault",    title:"Vaults",    kinds:["vault"],    color:"var(--red)" },
+    { key:"type",     title:"Types",     kinds:["type"],     color:"var(--violet)" },
+    { key:"module",   title:"Modules",   kinds:["module"],   color:"var(--ink-soft)" },
+    { key:"package",  title:"Packages",  kinds:["package"],  color:"var(--green)" },
+  ];
+  const KIND_COLOR = { workflow:"var(--amber)", model:"var(--cyan)", type:"var(--violet)", vault:"var(--red)", module:"var(--ink-soft)", package:"var(--green)" };
+  const EDGE = {
+    calls:      { color:"var(--amber)",    label:"workflow calls model" },
+    runs:       { color:"var(--amber)",    label:"workflow runs workflow" },
+    instanceOf: { color:"var(--cyan)",     label:"model is instance of type" },
+    usesVault:  { color:"var(--red)",      label:"model reads vault" },
+    definedIn:  { color:"var(--violet)",   label:"type defined in module" },
+    imports:    { color:"var(--ink-soft)", label:"module imports module" },
+    dependsOn:  { color:"var(--green)",    label:"module depends on package" },
+  };
+  const LANE_W = 184, GAP = 56, ROW = 20, NODE_H = 16, TOP = 56, PAD = 20;
+
+  // ---- header ---------------------------------------------------------
+  document.getElementById("repo").textContent = G.repo;
+  const when = new Date(G.generatedAt);
+  document.getElementById("meta").textContent =
+    "Mapped " + when.toLocaleString() + (G.datastore ? " · datastore " + G.datastore : "");
+  const statKeys = ["extensions","workflows","models","types","vaults","modules","packages"];
+  d3.select("#stats").selectAll("li").data(statKeys).join("li")
+    .html("").each(function(k){ const li=d3.select(this); li.append("b").text(G.stats[k] ?? 0); li.append("span").text(k); });
+
+  // ---- indexes ----------------------------------------------------------
+  const byId = new Map(G.nodes.map(n=>[n.id,n]));
+  const out = new Map(), inn = new Map();
+  G.edges.forEach(e=>{
+    if(!byId.has(e.source) || !byId.has(e.target)) return;
+    (out.get(e.source) || out.set(e.source,[]).get(e.source)).push(e);
+    (inn.get(e.target) || inn.set(e.target,[]).get(e.target)).push(e);
+  });
+  const shown = new Set(LANES.map(l=>l.key));
+  let selected = null;
+
+  // ---- lane toggles -----------------------------------------------------
+  const toggles = d3.select("#toggles").selectAll("button").data(LANES).join("button")
+    .attr("class","lane-toggle").attr("type","button").attr("aria-pressed","true")
+    .on("click", (ev,l)=>{
+      if(shown.has(l.key)){ if(shown.size>1) shown.delete(l.key); } else shown.add(l.key);
+      draw();
+    });
+  toggles.append("i").style("background", l=>l.color);
+  toggles.append("span").text(l=>l.title);
+
+  d3.select("#legend").selectAll("span").data(Object.values(EDGE)).join("span")
+    .each(function(e){ const s=d3.select(this); s.append("i").style("background", e.color); s.append("span").text(e.label); });
+
+  // ---- layout + draw ----------------------------------------------------
+  const svg = d3.select("#map");
+  let nodeSel, edgeSel;
+
+  function trunc(s, n){ return s.length > n ? s.slice(0, n-1) + "…" : s; }
+  // The group header already names the prefix: `@a/b/key-pair` under `@a/b` → `key-pair`.
+  function shortLabel(n){
+    const p = n.group;
+    return n.label.length > p.length + 1 && n.label.startsWith(p) && "/:".includes(n.label[p.length])
+      ? n.label.slice(p.length + 1) : n.label;
+  }
+
+  function draw(){
+    toggles.attr("aria-pressed", l=>shown.has(l.key));
+    const lanes = LANES.filter(l=>shown.has(l.key));
+    const pos = new Map();
+    const groupHeads = [];
+    let height = 0;
+    lanes.forEach((lane, li)=>{
+      const x = PAD + li*(LANE_W+GAP);
+      const members = G.nodes.filter(n=>lane.kinds.includes(n.kind));
+      const groups = d3.groups(members, n=>n.group)
+        .sort((a,b)=>d3.ascending(a[0],b[0]));
+      let y = TOP;
+      groups.forEach(([g, ns])=>{
+        groupHeads.push({ x, y: y+10, text: g });
+        y += 16;
+        ns.sort((a,b)=>d3.ascending(a.label,b.label)).forEach(n=>{ pos.set(n.id,{x,y,lane:li}); y += ROW; });
+        y += 10;
+      });
+      lane.x = x; lane.count = d3.sum(members, n=>n.instances ? n.instances.length : 1);
+      height = Math.max(height, y);
+    });
+    const width = PAD*2 + lanes.length*LANE_W + (lanes.length-1)*GAP;
+    svg.attr("width", width).attr("height", height + PAD).attr("viewBox", `0 0 ${width} ${height+PAD}`);
+    svg.selectAll("*").remove();
+
+    const heads = svg.append("g");
+    lanes.forEach(l=>{
+      heads.append("text").attr("class","lane-head").attr("x",l.x).attr("y",24).text(l.title);
+      heads.append("text").attr("class","lane-count").attr("x",l.x).attr("y",40).text(l.count + (l.key==="model" ? " instances" : " nodes"));
+      heads.append("line").attr("x1",l.x).attr("x2",l.x+LANE_W).attr("y1",46).attr("y2",46)
+        .attr("stroke", l.color).attr("stroke-width",2);
+    });
+    heads.selectAll("text.group-head").data(groupHeads).join("text")
+      .attr("class","group-head").attr("x",d=>d.x).attr("y",d=>d.y).text(d=>trunc(d.text, 40));
+
+    const visEdges = G.edges.filter(e=>pos.has(e.source) && pos.has(e.target));
+    edgeSel = svg.append("g").selectAll("path").data(visEdges).join("path")
+      .attr("class","edge").attr("stroke", e=>EDGE[e.kind].color)
+      .attr("d", e=>{
+        const a = pos.get(e.source), b = pos.get(e.target);
+        const y1 = a.y + NODE_H/2, y2 = b.y + NODE_H/2;
+        if(a.lane === b.lane){
+          const x = a.x + LANE_W, bulge = 14 + Math.min(60, Math.abs(y2-y1)/8);
+          return `M${x},${y1} C${x+bulge},${y1} ${x+bulge},${y2} ${x},${y2}`;
+        }
+        const [s, t] = a.lane < b.lane ? [a, b] : [b, a];
+        const sy = s === a ? y1 : y2, ty = t === b ? y2 : y1;
+        const x1 = s.x + LANE_W, x2 = t.x, mid = (x1 + x2) / 2;
+        return `M${x1},${sy} C${mid},${sy} ${mid},${ty} ${x2},${ty}`;
+      });
+
+    const visNodes = G.nodes.filter(n=>pos.has(n.id));
+    nodeSel = svg.append("g").selectAll("g.node").data(visNodes, n=>n.id).join("g")
+      .attr("class", n=>"node" + (n.unresolved ? " unresolved" : "") + (worst(n) ? " " + worst(n) : ""))
+      .attr("transform", n=>`translate(${pos.get(n.id).x},${pos.get(n.id).y})`)
+      .attr("tabindex", 0).attr("role","button").attr("aria-label", n=>n.kind + " " + n.label)
+      .on("click", (ev,n)=>select(n.id))
+      .on("keydown", (ev,n)=>{ if(ev.key==="Enter"||ev.key===" "){ ev.preventDefault(); select(n.id); } });
+    nodeSel.append("title").text(n=>n.label);
+    nodeSel.append("rect").attr("width", LANE_W).attr("height", NODE_H).attr("rx", 3);
+    nodeSel.append("circle").attr("cx", 8).attr("cy", NODE_H/2).attr("r", 3).attr("fill", n=>KIND_COLOR[n.kind]);
+    nodeSel.append("text").attr("x", 16).attr("y", NODE_H/2 + 3.5).text(n=>{
+      const more = n.instances && n.instances.length > 1 ? ` +${n.instances.length-1}` : "";
+      const room = (worst(n) ? 23 : 25) - more.length;
+      return trunc(more ? n.instances[0].label : shortLabel(n), room) + more;
+    });
+    const flagged = nodeSel.filter(n=>worst(n));
+    flagged.append("circle").attr("class", n=>"badge " + worst(n)).attr("cx", LANE_W-9).attr("cy", NODE_H/2).attr("r", 5.5);
+    flagged.append("text").attr("class","badge-mark").attr("x", LANE_W-9).attr("y", NODE_H/2 + 3).attr("text-anchor","middle").text("!");
+
+    applySearch();
+    select(selected && pos.has(selected) ? selected : null, true);
+  }
+
+  // ---- lineage ------------------------------------------------------------
+  function walk(start, adj, pick){
+    const seen = new Set([start]), edges = new Set(), queue = [start];
+    while(queue.length){
+      const id = queue.shift();
+      for(const e of adj.get(id) || []){
+        edges.add(e);
+        const next = pick(e);
+        if(!seen.has(next)){ seen.add(next); queue.push(next); }
+      }
+    }
+    return { seen, edges };
+  }
+
+  // The drawer starts collapsed; selecting a node opens it.
+  function setOpen(open){
+    d3.select("#panel").classed("collapsed", !open);
+    d3.select("#panelToggle").attr("aria-expanded", open).select(".chev").text(open ? "‹" : "›");
+    document.getElementById("panelBody").hidden = !open;
+  }
+  d3.select("#panelToggle").on("click", ()=>setOpen(d3.select("#panel").classed("collapsed")));
+
+  function select(id, quiet){
+    selected = id;
+    const panel = d3.select("#panelBody");
+    panel.selectAll("*").remove();
+    d3.select("#panelTitle").text(id ? "Details" : "How to read this");
+    if(id && !quiet) setOpen(true);
+    if(!id){
+      svg.classed("dim", false);
+      nodeSel.classed("on", false).classed("sel", false);
+      edgeSel.classed("on", false);
+      panel.append("h2").text("Left to right: what runs what");
+      panel.append("p").text("A workflow calls a model's method. The model is an instance of a type. A module defines the type, imports other modules, and depends on packages.");
+      panel.append("p").text("Select any node to trace its lineage both ways. Dashed nodes are referenced but not defined in this repo, for example a type from a pulled extension.");
+      panel.append("p").text("A red marker means something looks broken. An amber marker means it is worth a second look.");
+      return;
+    }
+    const n = byId.get(id);
+    const down = walk(id, out, e=>e.target), up = walk(id, inn, e=>e.source);
+    const on = new Set([...down.seen, ...up.seen]);
+    const onEdges = new Set([...down.edges, ...up.edges]);
+    svg.classed("dim", true);
+    nodeSel.classed("on", d=>on.has(d.id)).classed("sel", d=>d.id===id);
+    edgeSel.classed("on", e=>onEdges.has(e));
+
+    panel.append("div").attr("class","kind").style("color", KIND_COLOR[n.kind]).text(n.kind + (n.role ? " · " + n.role : "") + (n.unresolved ? " · not defined here" : ""));
+    panel.append("h2").text(n.label);
+    panel.append("div").attr("class","path").text(n.path || n.group);
+    if(n.issues && n.issues.length){
+      panel.append("h3").text("Problems");
+      panel.append("ul").selectAll("li").data(n.issues).join("li").attr("class", i=>"issue " + i.level)
+        .text(i=>(i.instance && n.instances.length > 1 ? i.instance + ": " : "") + i.message);
+    }
+    if(n.doc) panel.append("p").text(n.doc);
+    if(n.instances && n.instances.length > 1){
+      panel.append("h3").text(n.instances.length + " instances");
+      panel.append("ul").selectAll("li").data(n.instances).join("li").attr("title", i=>i.path || "").text(i=>i.label);
+    }
+    if(n.methods && n.methods.length){
+      panel.append("h3").text("Methods");
+      panel.append("div").attr("class","chips").selectAll("span").data(n.methods).join("span").attr("class","chip").text(m=>m);
+    }
+    panel.append("h3").text(`Lineage · ${up.seen.size-1} upstream · ${down.seen.size-1} downstream`);
+    const links = [
+      ...(out.get(id)||[]).map(e=>({ e, other:e.target, dir:"→" })),
+      ...(inn.get(id)||[]).map(e=>({ e, other:e.source, dir:"←" })),
+    ];
+    const ul = panel.append("ul");
+    links.slice(0, 80).forEach(l=>{
+      const li = ul.append("li");
+      li.append("span").attr("class","rel").text(`${l.dir} ${l.e.kind}${l.e.label ? " ." + l.e.label : ""} `);
+      li.append("button").attr("type","button").text(byId.get(l.other).label).on("click", ()=>focusNode(l.other));
+    });
+    if(links.length > 80) ul.append("li").attr("class","rel").text(`… ${links.length-80} more`);
+    const clear = panel.append("p");
+    clear.append("button").attr("type","button").text("Clear selection").on("click", ()=>select(null));
+  }
+
+  function worst(n){
+    if(!n.issues || !n.issues.length) return "";
+    return n.issues.some(i=>i.level==="broken") ? "broken" : "suspicious";
+  }
+
+  // Every flagged node, broken first, in the drawer.
+  function showProblems(){
+    selected = null;
+    const flaggedNodes = G.nodes.filter(worst)
+      .sort((a,b)=>d3.ascending(worst(a), worst(b)) || d3.ascending(a.label, b.label));
+    const ids = new Set(flaggedNodes.map(n=>n.id));
+    svg.classed("dim", true);
+    nodeSel.classed("on", d=>ids.has(d.id)).classed("sel", false);
+    edgeSel.classed("on", false);
+    const panel = d3.select("#panelBody");
+    panel.selectAll("*").remove();
+    d3.select("#panelTitle").text("Problems");
+    setOpen(true);
+    panel.append("h2").text("What looks wrong");
+    const ul = panel.append("ul").attr("class","problems");
+    flaggedNodes.forEach(n=>{
+      const li = ul.append("li");
+      li.append("button").attr("type","button").text(n.kind + " " + n.label).on("click", ()=>focusNode(n.id));
+      li.selectAll("div").data(n.issues).join("div").attr("class", i=>"issue " + i.level)
+        .text(i=>(i.instance && n.instances && n.instances.length > 1 ? i.instance + ": " : "") + i.message);
+    });
+    panel.append("p").append("button").attr("type","button").text("Clear").on("click", ()=>select(null));
+  }
+
+  const problemCount = { broken:0, suspicious:0 };
+  G.nodes.forEach(n=>(n.issues||[]).forEach(i=>problemCount[i.level]++));
+  const problems = d3.select("#problems");
+  if(problemCount.broken + problemCount.suspicious === 0){
+    problems.append("span").attr("class","hint").text("No problems found");
+  } else {
+    const b = problems.append("button").attr("type","button").attr("class","problem-btn").on("click", showProblems);
+    if(problemCount.broken) b.append("span").attr("class","issue broken").text(problemCount.broken + " broken");
+    if(problemCount.suspicious) b.append("span").attr("class","issue suspicious").text(problemCount.suspicious + " suspicious");
+  }
+
+  function focusNode(id){
+    const kind = byId.get(id).kind;
+    const lane = LANES.find(l=>l.kinds.includes(kind));
+    if(!shown.has(lane.key)){ shown.add(lane.key); selected = id; draw(); }
+    else select(id);
+    const el = nodeSel.filter(d=>d.id===id).node();
+    if(el){ el.focus({ preventScroll:true }); el.scrollIntoView({ block:"center", inline:"center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); }
+  }
+
+  // ---- search ------------------------------------------------------------
+  const search = document.getElementById("search");
+  function applySearch(){
+    const q = search.value.trim().toLowerCase();
+    nodeSel.classed("hit", d=> q.length > 1 && (d.label.toLowerCase().includes(q) || (d.path||"").toLowerCase().includes(q) || (d.instances||[]).some(i=>i.label.toLowerCase().includes(q))));
+  }
+  search.addEventListener("input", applySearch);
+  search.addEventListener("keydown", ev=>{
+    if(ev.key !== "Enter") return;
+    const el = nodeSel.filter(".hit").node();
+    if(el) focusNode(d3.select(el).datum().id);
+  });
+
+  draw();
+})();
+</script>
