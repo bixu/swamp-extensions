@@ -249,6 +249,7 @@ async function osvVulns(
   }
 }
 
+/** Repository URL from an npm manifest's string or `{ url }` form. */
 export function extractRepo(manifest: NpmManifest | null): string | null {
   if (!manifest) return null;
   if (typeof manifest.repository === "string") return manifest.repository;
@@ -258,6 +259,7 @@ export function extractRepo(manifest: NpmManifest | null): string | null {
   return null;
 }
 
+/** License from an npm manifest's string or legacy `{ type }` form. */
 export function extractLicense(manifest: NpmManifest | null): string | null {
   if (!manifest) return null;
   if (typeof manifest.license === "string") return manifest.license;
@@ -403,6 +405,7 @@ async function enrichJsrCandidate(
   };
 }
 
+/** One audited candidate: registry facts, gate blockers, verdict and rank score. */
 export interface CandidateResult {
   facts: PkgFacts;
   blockers: string[];
@@ -410,6 +413,7 @@ export interface CandidateResult {
   score: number;
 }
 
+/** Sort order for candidates: approved first, then by descending score. */
 export function compareCandidates(
   a: CandidateResult,
   b: CandidateResult,
@@ -419,6 +423,7 @@ export function compareCandidates(
   return b.score - a.score;
 }
 
+/** Shape ranked candidates into `evaluate`'s output, choosing `ok` or `ask_user`. */
 export function buildOutput(
   ranked: CandidateResult[],
   unsafe: boolean,
