@@ -1,0 +1,12 @@
+derivedFrom:
+  - extension: '@sntxrr/tailscale-acl-drift'
+    version: 2026.07.24.2
+    repository: 'https://github.com/sntxrr/swamp-tailscale'
+    license: MIT
+    files:
+      - from: models/tailscale_acl_drift.ts
+        to: hujson.ts
+      - from: models/tailscale_acl_drift.ts
+        to: policy_drift.ts
+      - from: models/tailscale_acl_propose.ts
+        to: policy_propose.ts
