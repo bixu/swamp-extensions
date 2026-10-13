@@ -150,6 +150,42 @@ swamp model method run wheelshop evaluate \
   - "Skip the feature?"
   - Do not silently fall back to a native implementation.
 
+## Combining community extensions ("smooshing")
+
+Name the result `@<collective>/<domain>-community`. Let wheelshop make every
+mechanical decision; you make only the plan and the adaptations.
+
+1. **Survey:**
+   `swamp model method run wheelshop survey --input query=<domain> --json`.
+   Build on `base`. Borrow only from `reusable` candidates. Skip any that are
+   `likelyRedundant` with the base. Ask the user when the base is null or a
+   source you want is not reusable.
+2. **Pull** the base and each source: `swamp extension pull <name>`.
+3. **Plan:** pick the files and the `retarget` map (source model type → base
+   type), then run `smoosh`:
+
+```bash
+swamp model method run wheelshop smoosh \
+  --input outDir=model/tailscale-community \
+  --input name=@bixu/tailscale-community \
+  --input description="Community add-ons for @swamp/tailscale" \
+  --input base=@swamp/tailscale \
+  --input sources='[{"extension":"@sntxrr/tailscale-acl-drift","version":"2026.07.24.2","repository":"https://github.com/sntxrr/swamp-tailscale","files":[{"from":"models/tailscale_acl_drift.ts","to":"policy_drift.ts"},{"from":"models/tailscale_acl_propose.ts","to":"policy_propose.ts"}],"retarget":{"@john/tailscale-acl":"@swamp/tailscale/policy-file"}}]' \
+  --json
+```
+
+4. **Fix the blockers by editing the derived files:**
+   - `needs-adaptation`: adapt the code to the base type's stored data.
+   - `own-license-missing`: put your license at the top of `LICENSE.txt`.
+   - `readme-missing`: write the README.
+
+   Then re-run `smoosh` until `action: "ok"`. It keeps your edits.
+5. Run any `npm:`/`jsr:` imports the copied code brought along through
+   `evaluate`.
+
+`attribute` runs inside `smoosh`. Run it on its own when you copied code by
+hand.
+
 ## Trust gates (defaults)
 
 | Gate                | Threshold                                                    |

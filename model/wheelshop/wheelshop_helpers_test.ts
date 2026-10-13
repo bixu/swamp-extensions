@@ -7,8 +7,10 @@ import {
   buildRationale,
   buildSnippet,
   cachedJsonFetch,
+  checkAttribution,
   cvssToSeverity,
   DEFAULT_THRESHOLDS,
+  detectSpdxLicense,
   detectTypes,
   evaluateGates,
   fnv1a32,
@@ -19,6 +21,7 @@ import {
   parseCvssScore,
   parseSpdxLicense,
   type PkgFacts,
+  type PriorArtSource,
   rankScore,
   sha256Hex,
 } from "./wheelshop_helpers.ts";
@@ -652,4 +655,91 @@ Deno.test("evaluateGates blocks npm packages with null license", () => {
     now,
   );
   assertEquals(result.blockers.some((b) => b.startsWith("license:")), true);
+});
+
+// --- checkAttribution ---
+
+const SOURCE: PriorArtSource = {
+  extension: "@john/tailscale",
+  version: "2026.03.02.1",
+  repository: "https://github.com/john/tailscale",
+  license: "MIT",
+  files: [{ from: "tailscale/device.ts", to: "device_client.ts" }],
+};
+
+Deno.test("checkAttribution passes when every source is credited", () => {
+  assertEquals(
+    checkAttribution({
+      sources: [SOURCE],
+      additionalFiles: ["prior-art.yaml", "LICENSE.txt"],
+      derivedFiles: {
+        "device_client.ts": "// Derived from @john/tailscale@2026.03.02.1\n",
+      },
+      licenseText: "MIT\n\nIncludes code from @john/tailscale (MIT).",
+    }),
+    [],
+  );
+});
+
+Deno.test("checkAttribution flags every missing credit", () => {
+  assertEquals(
+    checkAttribution({
+      sources: [{ ...SOURCE, license: null }],
+      additionalFiles: [],
+      derivedFiles: { "device_client.ts": "export const x = 1;\n" },
+      licenseText: null,
+    }),
+    [
+      "prior-art-not-shipped (add prior-art.yaml to additionalFiles)",
+      "unknown-license:@john/tailscale",
+      "missing-license-notice:@john/tailscale",
+      "missing-header:device_client.ts(Derived from @john/tailscale@2026.03.02.1)",
+    ],
+  );
+});
+
+Deno.test("checkAttribution flags disallowed licenses and missing files", () => {
+  assertEquals(
+    checkAttribution({
+      sources: [{ ...SOURCE, license: "GPL-3.0-only" }],
+      additionalFiles: ["prior-art.yaml"],
+      derivedFiles: { "device_client.ts": null },
+      licenseText: "@john/tailscale",
+    }),
+    [
+      "license-not-allowed:@john/tailscale(GPL-3.0-only)",
+      "missing-file:device_client.ts",
+    ],
+  );
+});
+
+// --- detectSpdxLicense ---
+
+Deno.test("detectSpdxLicense prefers an SPDX-License-Identifier line", () => {
+  assertEquals(
+    detectSpdxLicense("// SPDX-License-Identifier: Apache-2.0\nMIT License"),
+    "Apache-2.0",
+  );
+});
+
+Deno.test("detectSpdxLicense recognises common license texts", () => {
+  const cases: [string, string | null][] = [
+    ["MIT License\n\nPermission is hereby granted, free of charge, to", "MIT"],
+    [
+      "under the terms of the GNU Affero General Public License as published by",
+      "AGPL-3.0",
+    ],
+    ["GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007", "GPL-3.0"],
+    ["Apache License\nVersion 2.0, January 2004", "Apache-2.0"],
+    [
+      "Redistribution and use in source and binary forms ... Neither the name",
+      "BSD-3-Clause",
+    ],
+    [
+      "with or without fee is hereby granted, provided that the above copyright",
+      "ISC",
+    ],
+    ["Copyright (c) 2026 nobody. All rights reserved.", null],
+  ];
+  for (const [text, want] of cases) assertEquals(detectSpdxLicense(text), want);
 });

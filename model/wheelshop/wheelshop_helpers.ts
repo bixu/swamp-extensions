@@ -395,3 +395,92 @@ export function parseCvssScore(input: string): number | null {
   // and let the caller fall back to UNKNOWN.
   return null;
 }
+
+export interface PriorArtSource {
+  extension: string;
+  version: string;
+  repository: string | null;
+  license: string | null;
+  files: { from: string; to: string }[];
+}
+
+export interface AttributionInputs {
+  sources: PriorArtSource[];
+  /** `additionalFiles` from the derived extension's manifest. */
+  additionalFiles: string[];
+  /** Derived file path (manifest-relative) → contents, or null if missing. */
+  derivedFiles: Record<string, string | null>;
+  /** Contents of the derived extension's LICENSE.txt, or null if missing. */
+  licenseText: string | null;
+}
+
+export const PRIOR_ART_FILE = "prior-art.yaml";
+
+/** The header line each derived file must carry, e.g. `Derived from @a/b@2026.01.01.1`. */
+export function derivedFromLine(source: PriorArtSource): string {
+  return `Derived from ${source.extension}@${source.version}`;
+}
+
+/**
+ * Check that a derived extension credits every source it borrowed from.
+ * Returns blocker reasons; empty means attribution is complete.
+ */
+export function checkAttribution(inputs: AttributionInputs): string[] {
+  const blockers: string[] = [];
+  if (!inputs.additionalFiles.includes(PRIOR_ART_FILE)) {
+    blockers.push(
+      `prior-art-not-shipped (add ${PRIOR_ART_FILE} to additionalFiles)`,
+    );
+  }
+  for (const source of inputs.sources) {
+    if (!source.license) {
+      blockers.push(`unknown-license:${source.extension}`);
+    } else if (!licenseAllowed(source.license)) {
+      blockers.push(
+        `license-not-allowed:${source.extension}(${source.license})`,
+      );
+    }
+    if (!inputs.licenseText?.includes(source.extension)) {
+      blockers.push(`missing-license-notice:${source.extension}`);
+    }
+    for (const { to } of source.files) {
+      const text = inputs.derivedFiles[to];
+      if (text == null) blockers.push(`missing-file:${to}`);
+      else if (!text.includes(derivedFromLine(source))) {
+        blockers.push(`missing-header:${to}(${derivedFromLine(source)})`);
+      }
+    }
+  }
+  return blockers;
+}
+
+// Most specific first: AGPL/LGPL texts also contain "General Public License",
+// and 0BSD is ISC without the notice requirement.
+const LICENSE_TEXT_PATTERNS: [RegExp, string][] = [
+  [/Affero General Public License/i, "AGPL-3.0"],
+  [/Lesser General Public License/i, "LGPL-3.0"],
+  [/General Public License[\s\S]*version 2\b/i, "GPL-2.0"],
+  [/General Public License/i, "GPL-3.0"],
+  [/Apache License[\s\S]*Version 2\.0/i, "Apache-2.0"],
+  [/Mozilla Public License[\s\S]*2\.0/i, "MPL-2.0"],
+  [/Permission is hereby granted, free of charge/i, "MIT"],
+  [/with or without fee is hereby granted[\s\S]*provided that/i, "ISC"],
+  [/with or without fee is hereby granted/i, "0BSD"],
+  [/Redistribution and use[\s\S]*Neither the name/i, "BSD-3-Clause"],
+  [/Redistribution and use in source and binary forms/i, "BSD-2-Clause"],
+  [
+    /free and unencumbered software released into the public domain/i,
+    "Unlicense",
+  ],
+  [/CC0 1\.0 Universal/i, "CC0-1.0"],
+];
+
+/**
+ * Identify a LICENSE file's SPDX id from an `SPDX-License-Identifier` line or
+ * the license's own wording. Returns null when nothing matches.
+ */
+export function detectSpdxLicense(text: string): string | null {
+  const spdx = text.match(/SPDX-License-Identifier:\s*([^\s*]+)/);
+  if (spdx) return spdx[1];
+  return LICENSE_TEXT_PATTERNS.find(([re]) => re.test(text))?.[1] ?? null;
+}

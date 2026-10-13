@@ -9,6 +9,8 @@ import {
   compareCandidates,
   extractLicense,
   extractRepo,
+  model,
+  pulledLicense,
   sanitiseInstanceName,
 } from "./wheelshop.ts";
 import type { PkgFacts } from "./wheelshop_helpers.ts";
@@ -263,4 +265,126 @@ Deno.test("extractLicense: handles object form { type }", () => {
 
 Deno.test("extractLicense: returns null when license field is missing", () => {
   assertEquals(extractLicense({ version: "1.0.0" }), null);
+});
+
+// --- attribute ---
+
+Deno.test("attribute writes prior-art.yaml and reports gaps", async () => {
+  const dir = await Deno.makeTempDir();
+  await Deno.writeTextFile(
+    `${dir}/manifest.yaml`,
+    'name: "@me/derived"\nadditionalFiles:\n  - LICENSE.txt\n',
+  );
+  await Deno.writeTextFile(`${dir}/LICENSE.txt`, "MIT\n@john/tailscale\n");
+  await Deno.writeTextFile(
+    `${dir}/device_client.ts`,
+    "// Derived from @john/tailscale@2026.03.02.1\n",
+  );
+  const written: Record<string, unknown>[] = [];
+  const context = {
+    logger: { info: () => {} },
+    writeResource: (_spec: string, _name: string, data: unknown) => {
+      written.push(data as Record<string, unknown>);
+      return Promise.resolve({ name: _name });
+    },
+  };
+  const source = {
+    extension: "@john/tailscale",
+    version: "2026.03.02.1",
+    repository: "https://github.com/john/tailscale",
+    license: "MIT",
+    files: [{ from: "tailscale/device.ts", to: "device_client.ts" }],
+  };
+
+  await model.methods.attribute.execute(
+    { manifestPath: `${dir}/manifest.yaml`, sources: [source] },
+    context,
+  );
+
+  const priorArt = await Deno.readTextFile(`${dir}/prior-art.yaml`);
+  assertStringIncludes(priorArt, "extension: '@john/tailscale'");
+  assertStringIncludes(priorArt, "to: device_client.ts");
+  assertEquals(written[0].action, "fix");
+  assertEquals(written[0].extension, "@me/derived");
+  assertEquals(written[0].blockers, [
+    "prior-art-not-shipped (add prior-art.yaml to additionalFiles)",
+  ]);
+  await Deno.remove(dir, { recursive: true });
+});
+
+// --- pulledLicense ---
+
+async function fakePulledRepo(version: string, license: string | null) {
+  const repoDir = await Deno.makeTempDir();
+  const root = `${repoDir}/.swamp/pulled-extensions/@sntxrr/acl-drift`;
+  await Deno.mkdir(`${root}/files`, { recursive: true });
+  await Deno.writeTextFile(`${root}/manifest.yaml`, `version: ${version}\n`);
+  if (license) await Deno.writeTextFile(`${root}/files/LICENSE.md`, license);
+  return repoDir;
+}
+
+const PULLED = { extension: "@sntxrr/acl-drift", version: "2026.07.24.2" };
+const MIT_TEXT = "MIT License\n\nPermission is hereby granted, free of charge,";
+
+Deno.test("pulledLicense reads the pulled source's LICENSE file", async () => {
+  const repoDir = await fakePulledRepo("2026.07.24.2", MIT_TEXT);
+  assertEquals(await pulledLicense(repoDir, PULLED), "MIT");
+  await Deno.remove(repoDir, { recursive: true });
+});
+
+Deno.test("pulledLicense ignores a pulled copy at another version", async () => {
+  const repoDir = await fakePulledRepo("2026.08.01.1", MIT_TEXT);
+  assertEquals(await pulledLicense(repoDir, PULLED), null);
+  await Deno.remove(repoDir, { recursive: true });
+});
+
+Deno.test("pulledLicense is null when not pulled or unlicensed", async () => {
+  const repoDir = await fakePulledRepo("2026.07.24.2", null);
+  assertEquals(await pulledLicense(repoDir, PULLED), null);
+  assertEquals(
+    await pulledLicense(repoDir, { ...PULLED, extension: "@x/missing" }),
+    null,
+  );
+  await Deno.remove(repoDir, { recursive: true });
+});
+
+Deno.test("attribute fills a missing license from the pulled source", async () => {
+  const repoDir = await fakePulledRepo("2026.07.24.2", MIT_TEXT);
+  const dir = await Deno.makeTempDir();
+  await Deno.writeTextFile(
+    `${dir}/manifest.yaml`,
+    'name: "@me/derived"\nadditionalFiles:\n  - prior-art.yaml\n',
+  );
+  await Deno.writeTextFile(`${dir}/LICENSE.txt`, "MIT\n@sntxrr/acl-drift\n");
+  await Deno.writeTextFile(
+    `${dir}/drift.ts`,
+    "// Derived from @sntxrr/acl-drift@2026.07.24.2\n",
+  );
+  const written: Record<string, unknown>[] = [];
+  await model.methods.attribute.execute(
+    {
+      manifestPath: `${dir}/manifest.yaml`,
+      sources: [{
+        ...PULLED,
+        repository: null,
+        license: null,
+        files: [{ from: "drift.ts", to: "drift.ts" }],
+      }],
+    },
+    {
+      repoDir,
+      logger: { info: () => {} },
+      writeResource: (_spec: string, name: string, data: unknown) => {
+        written.push(data as Record<string, unknown>);
+        return Promise.resolve({ name });
+      },
+    },
+  );
+  assertEquals(written[0].action, "ok");
+  assertStringIncludes(
+    await Deno.readTextFile(`${dir}/prior-art.yaml`),
+    "license: MIT",
+  );
+  await Deno.remove(dir, { recursive: true });
+  await Deno.remove(repoDir, { recursive: true });
 });
