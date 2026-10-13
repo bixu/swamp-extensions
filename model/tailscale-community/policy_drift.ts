@@ -56,6 +56,7 @@ const DriftSchema = z.object({
     .describe("Human-readable one-line summary suitable for alerting."),
 });
 
+/** Adds read-only `drift` to `@swamp/tailscale/policy-file`. */
 export const extension = {
   type: "@swamp/tailscale/policy-file",
 

@@ -92,6 +92,7 @@ function renderChangeList(
     .join("\n");
 }
 
+/** Adds `propose` (stage an ACL change for PR review) to `@swamp/tailscale/policy-file`. */
 export const extension = {
   type: "@swamp/tailscale/policy-file",
 
