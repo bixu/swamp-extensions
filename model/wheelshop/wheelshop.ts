@@ -31,6 +31,7 @@ import {
   cachedJsonFetch,
   checkAttribution,
   DEFAULT_THRESHOLDS,
+  detectSpdxLicense,
   detectTypes,
   evaluateGates,
   fnv1a32,
@@ -103,7 +104,7 @@ const PriorArtSourceSchema = z.object({
     "Source repository URL, from `swamp extension info <name> --json`",
   ),
   license: z.string().nullable().default(null).describe(
-    "Source SPDX license, from `swamp extension info` or its LICENSE file",
+    "Source SPDX license. Omit to read it from the source's LICENSE file, which needs that exact version pulled into this repo",
   ),
   files: z.array(z.object({
     from: z.string().min(1).describe("File path inside the source extension"),
@@ -458,11 +459,11 @@ export function buildOutput(
 /** Wheelshop extension model. */
 export const model = {
   type: "@bixu/wheelshop",
-  version: "2026.10.13.1",
+  version: "2026.10.13.2",
   globalArguments: GlobalArgsSchema,
   upgrades: [
     {
-      toVersion: "2026.10.13.1",
+      toVersion: "2026.10.13.2",
       description: "Add attribute method; globalArguments unchanged",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
@@ -623,6 +624,14 @@ export const model = {
       // deno-lint-ignore no-explicit-any
       execute: async (args: any, context: any) => {
         const sources = args.sources as PriorArtSource[];
+        for (const source of sources) {
+          if (source.license) continue;
+          source.license = await pulledLicense(context.repoDir, source);
+          context.logger.info(
+            "License for {ext}@{version} from its pulled copy: {license} (null = not found)",
+            { ...source, ext: source.extension },
+          );
+        }
         context.logger.info(
           "wheelshop attribute: {count} source(s) for {manifest}",
           { count: sources.length, manifest: args.manifestPath },
@@ -681,6 +690,35 @@ export const model = {
     },
   },
 };
+
+/**
+ * Read a source extension's license from its pulled copy in this repo, but
+ * only when the pulled version is the one the code was taken from.
+ * shortcut: assumes swamp's `.swamp/pulled-extensions/<name>/files/` layout
+ * (no API exposes another extension's files); switch if swamp adds one.
+ */
+export async function pulledLicense(
+  repoDir: string,
+  source: { extension: string; version: string },
+): Promise<string | null> {
+  const root = `${repoDir}/.swamp/pulled-extensions/${source.extension}`;
+  try {
+    const pulled = parseYaml(
+      await Deno.readTextFile(`${root}/manifest.yaml`),
+    ) as { version?: unknown } | null;
+    if (String(pulled?.version) !== source.version) return null;
+    for await (const entry of Deno.readDir(`${root}/files`)) {
+      if (entry.isFile && /^licen[cs]e/i.test(entry.name)) {
+        return detectSpdxLicense(
+          await Deno.readTextFile(`${root}/files/${entry.name}`),
+        );
+      }
+    }
+  } catch {
+    // Not pulled, or no files: the license stays unknown and blocks.
+  }
+  return null;
+}
 
 /**
  * Instance names map directly to filesystem paths in swamp's data store, so

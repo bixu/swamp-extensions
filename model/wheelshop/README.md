@@ -93,12 +93,15 @@ credits it.
 ```bash
 swamp model method run wheelshop attribute \
   --input manifestPath=model/my-ext/manifest.yaml \
-  --input sources='[{"extension":"@john/tailscale","version":"2026.03.02.1","license":"MIT","repository":"https://github.com/john/tailscale","files":[{"from":"tailscale/device.ts","to":"device_client.ts"}]}]' \
+  --input sources='[{"extension":"@john/tailscale","version":"2026.03.02.1","repository":"https://github.com/john/tailscale","files":[{"from":"tailscale/device.ts","to":"device_client.ts"}]}]' \
   --json
 ```
 
-Get `repository` and `license` for each source from
-`swamp extension info <name> --json`.
+Get `repository` for each source from `swamp extension info <name> --json`.
+Leave `license` out and `attribute` reads it from the source's LICENSE file.
+That needs the same version pulled into the repo
+(`swamp extension pull <name>`), because the registry usually has no license on
+record.
 
 It writes `prior-art.yaml` beside the manifest:
 

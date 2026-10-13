@@ -155,8 +155,10 @@ swamp model method run wheelshop evaluate \
 When you build a new extension from parts of community swamp extensions (found
 with `swamp extension search`), record the prior art:
 
-1. For each source, run `swamp extension info <name> --json` and note
-   `latestVersion` (or the version you pulled), `repository`, and `license`.
+1. Pull each source (`swamp extension pull <name>`). Note its version and
+   `repository` from `swamp extension info <name> --json`. Leave `license` out:
+   `attribute` reads it from the pulled LICENSE file, because the registry
+   rarely has one on record.
 2. Copy the code. Put `// Derived from <extension>@<version>` at the top of each
    derived file, and name each source extension in `LICENSE.txt`.
 3. Run `attribute` with the derived manifest and the sources:
@@ -164,7 +166,7 @@ with `swamp extension search`), record the prior art:
 ```bash
 swamp model method run wheelshop attribute \
   --input manifestPath=model/my-ext/manifest.yaml \
-  --input sources='[{"extension":"@john/tailscale","version":"2026.03.02.1","license":"MIT","repository":"https://github.com/john/tailscale","files":[{"from":"tailscale/device.ts","to":"device_client.ts"}]}]' \
+  --input sources='[{"extension":"@john/tailscale","version":"2026.03.02.1","repository":"https://github.com/john/tailscale","files":[{"from":"tailscale/device.ts","to":"device_client.ts"}]}]' \
   --json
 ```
 

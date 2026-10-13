@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@bixu/wheelshop"
-version: "2026.10.13.1"
+version: "2026.10.13.2"
 description: "Trust-gate auditor for npm/jsr packages used inside swamp extension models, plus prior-art attribution for extensions built from parts of community swamp extensions"
 repository: https://github.com/bixu/swamp-extensions
 paths:

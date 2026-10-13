@@ -10,6 +10,7 @@ import {
   checkAttribution,
   cvssToSeverity,
   DEFAULT_THRESHOLDS,
+  detectSpdxLicense,
   detectTypes,
   evaluateGates,
   fnv1a32,
@@ -710,4 +711,35 @@ Deno.test("checkAttribution flags disallowed licenses and missing files", () => 
       "missing-file:device_client.ts",
     ],
   );
+});
+
+// --- detectSpdxLicense ---
+
+Deno.test("detectSpdxLicense prefers an SPDX-License-Identifier line", () => {
+  assertEquals(
+    detectSpdxLicense("// SPDX-License-Identifier: Apache-2.0\nMIT License"),
+    "Apache-2.0",
+  );
+});
+
+Deno.test("detectSpdxLicense recognises common license texts", () => {
+  const cases: [string, string | null][] = [
+    ["MIT License\n\nPermission is hereby granted, free of charge, to", "MIT"],
+    [
+      "under the terms of the GNU Affero General Public License as published by",
+      "AGPL-3.0",
+    ],
+    ["GNU GENERAL PUBLIC LICENSE\nVersion 3, 29 June 2007", "GPL-3.0"],
+    ["Apache License\nVersion 2.0, January 2004", "Apache-2.0"],
+    [
+      "Redistribution and use in source and binary forms ... Neither the name",
+      "BSD-3-Clause",
+    ],
+    [
+      "with or without fee is hereby granted, provided that the above copyright",
+      "ISC",
+    ],
+    ["Copyright (c) 2026 nobody. All rights reserved.", null],
+  ];
+  for (const [text, want] of cases) assertEquals(detectSpdxLicense(text), want);
 });
