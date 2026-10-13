@@ -84,6 +84,62 @@ Returns:
 - `action: "ask_user"` — every candidate failed; the agent should prompt the
   user rather than fall back to a custom implementation.
 
+### `survey`
+
+Ranks the community extensions for a domain through the swamp CLI
+(`swamp extension search` and `swamp extension info`):
+
+```bash
+swamp model method run wheelshop survey --input query=tailscale --json
+```
+
+Ordering: names containing every query word first, then official `@swamp/*`
+extensions, then health (yanked, deprecated, superseded, not updated in 24
+months, no repository), then quality score, pulls and recency. The top relevant,
+healthy extension with models is the suggested `base`. Each candidate reports:
+
+- `reusable`: its license allows copying code (an AGPL base can still be a
+  dependency). Licenses missing from the registry are read from a pulled copy at
+  the latest version.
+- `overlapWithBase`: the share of its method names the base also has.
+  `likelyRedundant` at 100%.
+
+### `smoosh`
+
+Builds a derived extension from files of pulled community extensions:
+
+```bash
+swamp model method run wheelshop smoosh \
+  --input outDir=model/tailscale-community \
+  --input name=@bixu/tailscale-community \
+  --input description="Community add-ons for @swamp/tailscale" \
+  --input base=@swamp/tailscale \
+  --input sources='[{"extension":"@sntxrr/tailscale-acl-drift","version":"2026.07.24.2","repository":"https://github.com/sntxrr/swamp-tailscale","files":[{"from":"models/tailscale_acl_drift.ts","to":"policy_drift.ts"},{"from":"models/tailscale_acl_propose.ts","to":"policy_propose.ts"}],"retarget":{"@john/tailscale-acl":"@swamp/tailscale/policy-file"}}]' \
+  --json
+```
+
+Pull each source at the given version first. `smoosh`:
+
+- copies each file from the pulled copy and adds a `Derived from` header
+- swaps model types per `retarget` and rewires relative imports between copied
+  files
+- appends each source's license to `LICENSE.txt`
+- merges `manifest.yaml`, with `base` as a dependency
+- runs the `attribute` checks
+
+It never overwrites a derived file that has been edited since it wrote it; the
+file is reported under `kept`. Blockers left for an agent or human:
+
+| Blocker                      | Meaning                                                                         |
+| ---------------------------- | ------------------------------------------------------------------------------- |
+| `needs-adaptation:<file>`    | Retargeted code reads the base model's stored data; check the new type's schema |
+| `unmapped-import:<file>`     | Imports a source file that was not carried over                                 |
+| `own-license-missing`        | Put your own license at the top of `LICENSE.txt`                                |
+| `readme-missing`             | Write `README.md`                                                               |
+| `not-pulled:<ext>@<version>` | Pull the source at that exact version                                           |
+
+Re-run `smoosh` after fixing them; edited files stop being flagged.
+
 ### `attribute`
 
 After an agent combines parts of community swamp extensions into a new one,
