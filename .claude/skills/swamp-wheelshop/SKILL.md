@@ -150,6 +150,30 @@ swamp model method run wheelshop evaluate \
   - "Skip the feature?"
   - Do not silently fall back to a native implementation.
 
+## Combining community extensions
+
+When you build a new extension from parts of community swamp extensions (found
+with `swamp extension search`), record the prior art:
+
+1. For each source, run `swamp extension info <name> --json` and note
+   `latestVersion` (or the version you pulled), `repository`, and `license`.
+2. Copy the code. Put `// Derived from <extension>@<version>` at the top of each
+   derived file, and name each source extension in `LICENSE.txt`.
+3. Run `attribute` with the derived manifest and the sources:
+
+```bash
+swamp model method run wheelshop attribute \
+  --input manifestPath=model/my-ext/manifest.yaml \
+  --input sources='[{"extension":"@john/tailscale","version":"2026.03.02.1","license":"MIT","repository":"https://github.com/john/tailscale","files":[{"from":"tailscale/device.ts","to":"device_client.ts"}]}]' \
+  --json
+```
+
+4. Fix every blocker until `action: "ok"`. Add `prior-art.yaml` to the
+   manifest's `additionalFiles`. An `unknown-license` or `license-not-allowed`
+   blocker means ask the user before reusing that code.
+5. Run any `npm:`/`jsr:` imports the copied code brought along through
+   `evaluate`.
+
 ## Trust gates (defaults)
 
 | Gate                | Threshold                                                    |

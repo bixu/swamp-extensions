@@ -8,9 +8,13 @@
  * against published trust gates (license, downloads, recency, maintenance,
  * OSV vulnerabilities, type availability) and returns approval verdicts.
  *
- * Single method:
+ * Methods:
  * - **evaluate** — given a list of `{name, version?, registry?}` candidates,
  *   audit each against the trust gates and return ranked verdicts.
+ *
+ * - **attribute** — after an agent combines parts of community swamp extensions
+ *   into a new one, write `prior-art.yaml` beside its manifest and check that
+ *   every source is credited (file headers, LICENSE notice, shipped file).
  *
  * When every candidate fails the gates, the model returns `action: "ask_user"`
  * so the calling agent knows to prompt a human rather than silently fall back
@@ -18,9 +22,14 @@
  */
 import { z } from "npm:zod@4";
 import {
+  parse as parseYaml,
+  stringify as stringifyYaml,
+} from "jsr:@std/yaml@1.2.0";
+import {
   buildRationale,
   buildSnippet,
   cachedJsonFetch,
+  checkAttribution,
   DEFAULT_THRESHOLDS,
   detectTypes,
   evaluateGates,
@@ -28,6 +37,8 @@ import {
   maintainerCount,
   normaliseVulns,
   type PkgFacts,
+  PRIOR_ART_FILE,
+  type PriorArtSource,
   rankScore,
   type TypesAvailability,
   type Vuln,
@@ -79,6 +90,45 @@ const EvaluateArgs = z.object({
   unsafe: z.boolean().default(false).describe(
     "Mark every candidate approved even when blockers are present (DO NOT enable without explicit user approval)",
   ),
+});
+
+const PriorArtSourceSchema = z.object({
+  extension: z.string()
+    .regex(/^@[a-z0-9_-]+\/[a-z0-9_/-]+$/, "invalid extension name")
+    .describe("Source swamp extension (e.g. '@john/tailscale')"),
+  version: z.string()
+    .regex(/^\d{4}\.\d{2}\.\d{2}\.\d+$/, "invalid CalVer version")
+    .describe("Exact source version the code was taken from"),
+  repository: z.string().url().nullable().default(null).describe(
+    "Source repository URL, from `swamp extension info <name> --json`",
+  ),
+  license: z.string().nullable().default(null).describe(
+    "Source SPDX license, from `swamp extension info` or its LICENSE file",
+  ),
+  files: z.array(z.object({
+    from: z.string().min(1).describe("File path inside the source extension"),
+    to: z.string().min(1).describe(
+      "Derived file path, relative to the new manifest",
+    ),
+  })).min(1),
+});
+
+const AttributeArgs = z.object({
+  manifestPath: z.string().describe(
+    "Path to the derived extension's manifest.yaml (paths.base: manifest)",
+  ),
+  sources: z.array(PriorArtSourceSchema).min(1).describe(
+    "Every community extension that code was taken from",
+  ),
+});
+
+const AttributionSchema = z.object({
+  action: z.enum(["ok", "fix"]),
+  extension: z.string(),
+  priorArtPath: z.string(),
+  sources: z.array(PriorArtSourceSchema),
+  blockers: z.array(z.string()),
+  message: z.string(),
 });
 
 const EvaluationSchema = z.object({
@@ -408,8 +458,15 @@ export function buildOutput(
 /** Wheelshop extension model. */
 export const model = {
   type: "@bixu/wheelshop",
-  version: "2026.06.07.1",
+  version: "2026.10.13.1",
   globalArguments: GlobalArgsSchema,
+  upgrades: [
+    {
+      toVersion: "2026.10.13.1",
+      description: "Add attribute method; globalArguments unchanged",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+  ],
   resources: {
     evaluation: {
       description: "Trust-gate audit of a single candidate package",
@@ -420,6 +477,13 @@ export const model = {
     evaluationSummary: {
       description: "Summary of an evaluate run across multiple candidates",
       schema: SummarySchema,
+      lifetime: "1d" as const,
+      garbageCollection: 20,
+    },
+    attribution: {
+      description:
+        "Prior-art record and attribution check for a derived extension",
+      schema: AttributionSchema,
       lifetime: "1d" as const,
       garbageCollection: 20,
     },
@@ -550,6 +614,69 @@ export const model = {
         );
 
         return { dataHandles: [summaryHandle, ...handles] };
+      },
+    },
+    attribute: {
+      description:
+        "Record prior art for an extension built from parts of community swamp extensions. Writes prior-art.yaml beside the manifest, then checks the manifest ships it, each derived file carries a 'Derived from <ext>@<version>' header, LICENSE.txt names each source, and each source license is permissive. Returns action='fix' with blockers when attribution is incomplete.",
+      arguments: AttributeArgs,
+      // deno-lint-ignore no-explicit-any
+      execute: async (args: any, context: any) => {
+        const sources = args.sources as PriorArtSource[];
+        context.logger.info(
+          "wheelshop attribute: {count} source(s) for {manifest}",
+          { count: sources.length, manifest: args.manifestPath },
+        );
+        // Manifest-relative paths; paths.base: manifest puts files beside it.
+        const slash = args.manifestPath.lastIndexOf("/");
+        const dir = slash === -1 ? "." : args.manifestPath.slice(0, slash);
+        const inDir = (path: string) => `${dir}/${path}`;
+        // An empty manifest parses to null; treat it as having no fields.
+        const manifest =
+          (parseYaml(await Deno.readTextFile(args.manifestPath)) ??
+            {}) as { name?: string; additionalFiles?: string[] };
+
+        const priorArtPath = inDir(PRIOR_ART_FILE);
+        await Deno.writeTextFile(
+          priorArtPath,
+          stringifyYaml({ derivedFrom: sources }),
+        );
+
+        const readOrNull = (path: string) =>
+          Deno.readTextFile(inDir(path)).catch(() => null);
+        const derivedFiles: Record<string, string | null> = {};
+        for (const { files } of sources) {
+          for (const { to } of files) derivedFiles[to] = await readOrNull(to);
+        }
+
+        const blockers = checkAttribution({
+          sources,
+          additionalFiles: manifest.additionalFiles ?? [],
+          derivedFiles,
+          licenseText: await readOrNull("LICENSE.txt"),
+        });
+        const action: "ok" | "fix" = blockers.length === 0 ? "ok" : "fix";
+        const message = action === "ok"
+          ? `Prior art recorded for ${sources.length} source(s).`
+          : `Prior art written to ${priorArtPath}; fix ${blockers.length} attribution gap(s) before publishing.`;
+        const extension = manifest.name ?? args.manifestPath;
+
+        const handle = await context.writeResource(
+          "attribution",
+          sanitiseInstanceName(extension),
+          { action, extension, priorArtPath, sources, blockers, message },
+        );
+        await Deno.stdout.write(
+          new TextEncoder().encode(
+            JSON.stringify(
+              { action, message, blockers, priorArtPath },
+              null,
+              2,
+            ) +
+              "\n",
+          ),
+        );
+        return { dataHandles: [handle] };
       },
     },
   },

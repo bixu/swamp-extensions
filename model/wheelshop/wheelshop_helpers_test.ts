@@ -7,6 +7,7 @@ import {
   buildRationale,
   buildSnippet,
   cachedJsonFetch,
+  checkAttribution,
   cvssToSeverity,
   DEFAULT_THRESHOLDS,
   detectTypes,
@@ -19,6 +20,7 @@ import {
   parseCvssScore,
   parseSpdxLicense,
   type PkgFacts,
+  type PriorArtSource,
   rankScore,
   sha256Hex,
 } from "./wheelshop_helpers.ts";
@@ -652,4 +654,60 @@ Deno.test("evaluateGates blocks npm packages with null license", () => {
     now,
   );
   assertEquals(result.blockers.some((b) => b.startsWith("license:")), true);
+});
+
+// --- checkAttribution ---
+
+const SOURCE: PriorArtSource = {
+  extension: "@john/tailscale",
+  version: "2026.03.02.1",
+  repository: "https://github.com/john/tailscale",
+  license: "MIT",
+  files: [{ from: "tailscale/device.ts", to: "device_client.ts" }],
+};
+
+Deno.test("checkAttribution passes when every source is credited", () => {
+  assertEquals(
+    checkAttribution({
+      sources: [SOURCE],
+      additionalFiles: ["prior-art.yaml", "LICENSE.txt"],
+      derivedFiles: {
+        "device_client.ts": "// Derived from @john/tailscale@2026.03.02.1\n",
+      },
+      licenseText: "MIT\n\nIncludes code from @john/tailscale (MIT).",
+    }),
+    [],
+  );
+});
+
+Deno.test("checkAttribution flags every missing credit", () => {
+  assertEquals(
+    checkAttribution({
+      sources: [{ ...SOURCE, license: null }],
+      additionalFiles: [],
+      derivedFiles: { "device_client.ts": "export const x = 1;\n" },
+      licenseText: null,
+    }),
+    [
+      "prior-art-not-shipped (add prior-art.yaml to additionalFiles)",
+      "unknown-license:@john/tailscale",
+      "missing-license-notice:@john/tailscale",
+      "missing-header:device_client.ts(Derived from @john/tailscale@2026.03.02.1)",
+    ],
+  );
+});
+
+Deno.test("checkAttribution flags disallowed licenses and missing files", () => {
+  assertEquals(
+    checkAttribution({
+      sources: [{ ...SOURCE, license: "GPL-3.0-only" }],
+      additionalFiles: ["prior-art.yaml"],
+      derivedFiles: { "device_client.ts": null },
+      licenseText: "@john/tailscale",
+    }),
+    [
+      "license-not-allowed:@john/tailscale(GPL-3.0-only)",
+      "missing-file:device_client.ts",
+    ],
+  );
 });

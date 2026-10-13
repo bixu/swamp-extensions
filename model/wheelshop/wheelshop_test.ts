@@ -9,6 +9,7 @@ import {
   compareCandidates,
   extractLicense,
   extractRepo,
+  model,
   sanitiseInstanceName,
 } from "./wheelshop.ts";
 import type { PkgFacts } from "./wheelshop_helpers.ts";
@@ -263,4 +264,49 @@ Deno.test("extractLicense: handles object form { type }", () => {
 
 Deno.test("extractLicense: returns null when license field is missing", () => {
   assertEquals(extractLicense({ version: "1.0.0" }), null);
+});
+
+// --- attribute ---
+
+Deno.test("attribute writes prior-art.yaml and reports gaps", async () => {
+  const dir = await Deno.makeTempDir();
+  await Deno.writeTextFile(
+    `${dir}/manifest.yaml`,
+    'name: "@me/derived"\nadditionalFiles:\n  - LICENSE.txt\n',
+  );
+  await Deno.writeTextFile(`${dir}/LICENSE.txt`, "MIT\n@john/tailscale\n");
+  await Deno.writeTextFile(
+    `${dir}/device_client.ts`,
+    "// Derived from @john/tailscale@2026.03.02.1\n",
+  );
+  const written: Record<string, unknown>[] = [];
+  const context = {
+    logger: { info: () => {} },
+    writeResource: (_spec: string, _name: string, data: unknown) => {
+      written.push(data as Record<string, unknown>);
+      return Promise.resolve({ name: _name });
+    },
+  };
+  const source = {
+    extension: "@john/tailscale",
+    version: "2026.03.02.1",
+    repository: "https://github.com/john/tailscale",
+    license: "MIT",
+    files: [{ from: "tailscale/device.ts", to: "device_client.ts" }],
+  };
+
+  await model.methods.attribute.execute(
+    { manifestPath: `${dir}/manifest.yaml`, sources: [source] },
+    context,
+  );
+
+  const priorArt = await Deno.readTextFile(`${dir}/prior-art.yaml`);
+  assertStringIncludes(priorArt, "extension: '@john/tailscale'");
+  assertStringIncludes(priorArt, "to: device_client.ts");
+  assertEquals(written[0].action, "fix");
+  assertEquals(written[0].extension, "@me/derived");
+  assertEquals(written[0].blockers, [
+    "prior-art-not-shipped (add prior-art.yaml to additionalFiles)",
+  ]);
+  await Deno.remove(dir, { recursive: true });
 });

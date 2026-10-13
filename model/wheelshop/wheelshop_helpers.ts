@@ -395,3 +395,61 @@ export function parseCvssScore(input: string): number | null {
   // and let the caller fall back to UNKNOWN.
   return null;
 }
+
+export interface PriorArtSource {
+  extension: string;
+  version: string;
+  repository: string | null;
+  license: string | null;
+  files: { from: string; to: string }[];
+}
+
+export interface AttributionInputs {
+  sources: PriorArtSource[];
+  /** `additionalFiles` from the derived extension's manifest. */
+  additionalFiles: string[];
+  /** Derived file path (manifest-relative) → contents, or null if missing. */
+  derivedFiles: Record<string, string | null>;
+  /** Contents of the derived extension's LICENSE.txt, or null if missing. */
+  licenseText: string | null;
+}
+
+export const PRIOR_ART_FILE = "prior-art.yaml";
+
+/** The header line each derived file must carry, e.g. `Derived from @a/b@2026.01.01.1`. */
+export function derivedFromLine(source: PriorArtSource): string {
+  return `Derived from ${source.extension}@${source.version}`;
+}
+
+/**
+ * Check that a derived extension credits every source it borrowed from.
+ * Returns blocker reasons; empty means attribution is complete.
+ */
+export function checkAttribution(inputs: AttributionInputs): string[] {
+  const blockers: string[] = [];
+  if (!inputs.additionalFiles.includes(PRIOR_ART_FILE)) {
+    blockers.push(
+      `prior-art-not-shipped (add ${PRIOR_ART_FILE} to additionalFiles)`,
+    );
+  }
+  for (const source of inputs.sources) {
+    if (!source.license) {
+      blockers.push(`unknown-license:${source.extension}`);
+    } else if (!licenseAllowed(source.license)) {
+      blockers.push(
+        `license-not-allowed:${source.extension}(${source.license})`,
+      );
+    }
+    if (!inputs.licenseText?.includes(source.extension)) {
+      blockers.push(`missing-license-notice:${source.extension}`);
+    }
+    for (const { to } of source.files) {
+      const text = inputs.derivedFiles[to];
+      if (text == null) blockers.push(`missing-file:${to}`);
+      else if (!text.includes(derivedFromLine(source))) {
+        blockers.push(`missing-header:${to}(${derivedFromLine(source)})`);
+      }
+    }
+  }
+  return blockers;
+}

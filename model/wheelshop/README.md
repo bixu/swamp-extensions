@@ -84,6 +84,45 @@ Returns:
 - `action: "ask_user"` — every candidate failed; the agent should prompt the
   user rather than fall back to a custom implementation.
 
+### `attribute`
+
+After an agent combines parts of community swamp extensions into a new one,
+`attribute` records where the code came from and checks the new extension
+credits it.
+
+```bash
+swamp model method run wheelshop attribute \
+  --input manifestPath=model/my-ext/manifest.yaml \
+  --input sources='[{"extension":"@john/tailscale","version":"2026.03.02.1","license":"MIT","repository":"https://github.com/john/tailscale","files":[{"from":"tailscale/device.ts","to":"device_client.ts"}]}]' \
+  --json
+```
+
+Get `repository` and `license` for each source from
+`swamp extension info <name> --json`.
+
+It writes `prior-art.yaml` beside the manifest:
+
+```yaml
+derivedFrom:
+  - extension: "@john/tailscale"
+    version: 2026.03.02.1
+    repository: https://github.com/john/tailscale
+    license: MIT
+    files:
+      - from: tailscale/device.ts
+        to: device_client.ts
+```
+
+Then it returns `action: "fix"` with blockers until:
+
+- `prior-art.yaml` is listed in the manifest's `additionalFiles`
+- each derived file contains `Derived from <extension>@<version>`
+- `LICENSE.txt` names each source extension
+- each source license is on the allowlist (unknown licenses block)
+
+The swamp manifest has no provenance field yet, so `prior-art.yaml` ships as an
+additional file.
+
 ## Trust Gates
 
 Each gate is a `blocker` unless `unsafe=true`:
