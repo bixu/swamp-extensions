@@ -10,6 +10,7 @@
     "model/zfs",
     "model/k8s-exec",
     "model/photos",
-    "model/invariant-encoding-check"
+    "model/invariant-encoding-check",
+    "model/tailscale-community"
   ]
 }

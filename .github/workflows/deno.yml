@@ -28,6 +28,7 @@ jobs:
           - photos
           - invariant-encoding-check
           - fanboat
+          - tailscale-community
 
     steps:
       - name: Setup repo
